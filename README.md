@@ -16,19 +16,21 @@ AI-IDS is a Python-based intrusion detection system that processes PCAP network 
 
 ---
 
-## 🏗️ Project Structure
+## Repository Layout
 
+```
 AI_IDPS_Project/
-├── dashboard.py # Streamlit dashboard
-├── pcap_ids.py # ML inference pipeline
-├── pcap_feature_extractor.py # Packet parsing & feature extraction
+├── dashboard.py
+├── pcap_ids.py
+├── pcap_feature_extractor.py
 ├── models/
-│   ├── ids_model.pkl # LightGBM IDS model
-│   └── igbm_model.pkl # Optional additional model
+│   ├── ids_model.pkl
+│   └── igbm_model.pkl
 ├── sample_pcaps/
 │   └── 2026-02-28-traffic-analysis-exercise.pcap
-├── requirements.txt # Python dependencies
-└── README.md # Project documentation
+├── requirements.txt
+└── README.md
+```
 
 
 ---
@@ -59,77 +61,149 @@ AI_IDPS_Project/
 ![alt text](image-11.png)
 ---
 
+
 ## 💻 Installation
 
-Step-by-step instructions:
+Follow these steps to set up the project locally.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Sultann1111/RealTime-IDS-Project.git
-   cd RealTime-IDS-Project
+### 1. Clone the Repository
 
-Create a virtual environment and activate it:
+```bash
+git clone https://github.com/Sultann1111/RealTime-IDS-Project.git
+cd RealTime-IDS-Project
+```
 
+### 2. Create and Activate a Virtual Environment
+
+**Linux / macOS**
+
+```bash
 python -m venv venv
-source venv/bin/activate   # Linux/Mac
-venv\Scripts\activate      # Windows
+source venv/bin/activate
+```
 
-Install dependencies:
+**Windows**
 
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+### 3. Install Dependencies
+
+```bash
 pip install -r requirements.txt
-▶️ Running the Dashboard
+```
+
+---
+
+## ▶️ Running the Dashboard
+
+Start the Streamlit dashboard using:
+
+```bash
 streamlit run dashboard.py
+```
 
-Opens a browser interface.
+This will:
 
-Upload your PCAP file or use the sample.
+- Launch the dashboard in your browser
+- Allow you to upload a **PCAP file**
+- Display **traffic analysis results**
+- Show **predictions and attack probabilities**
 
-Visualize predictions, packet counts, and attack probabilities.
+---
 
-🧩 How AI-IDS Works
+## 🧩 How AI-IDS Works
 
-Upload PCAP file.
+The system processes network traffic using the following pipeline:
 
-Extract features using Scapy.
+1. **Upload PCAP File**  
+   Network traffic capture files are provided to the system.
 
-Apply LightGBM ML model.
+2. **Feature Extraction**  
+   Packet features are extracted using **Scapy**.
 
-Display predictions (BENIGN or SUSPICIOUS) with probabilities.
+3. **Machine Learning Inference**  
+   A trained **LightGBM model** analyzes the extracted features.
 
-Visualize summaries and insights in the Streamlit dashboard.
+4. **Prediction Generation**  
+   Traffic flows are classified as:
 
-⚠️ Why Zeek Was Not Used
+   - **BENIGN**
+   - **SUSPICIOUS**
 
-Zeek was replaced with Scapy due to missing dependencies on Kali Linux (BIND, libc version conflicts). Scapy allows full packet parsing while maintaining pipeline integrity.
+5. **Visualization**  
+   The Streamlit dashboard displays:
 
-🔬 Machine Learning Model
+   - Flow summaries
+   - Attack probability distributions
+   - Suspicious traffic indicators
 
-Type: LightGBM classifier
+---
 
-Input: Extracted features from PCAPs
+## ⚠️ Why Zeek Was Not Used
 
-Output: BENIGN or SUSPICIOUS + probability
+Originally, **Zeek** was considered for network feature extraction.
 
-Handling Missing Features: Automatically padded to match model input
+However, installation issues occurred on **Kali Linux**, including:
 
-🚀 Future Enhancements
+- BIND dependency conflicts
+- libc version compatibility issues
 
-Real-time network capture and analysis.
+To maintain system stability, **Scapy** was used instead because it:
 
-Additional ML features for higher detection accuracy.
+- Provides reliable packet parsing
+- Works across multiple operating systems
+- Integrates easily with Python ML pipelines
 
-Cloud deployment for live monitoring.
+---
 
-Reintroduce Zeek or Suricata when dependencies allow.
+## 🔬 Machine Learning Model
 
-📜 License
+**Model Type:**  
+LightGBM Classifier
 
-For educational and research purposes only.
+**Input:**  
+Network flow features extracted from PCAP files.
 
-🙏 Acknowledgements
+**Output:**  
 
-Research in ML for cybersecurity.
+- **BENIGN**
+- **SUSPICIOUS**
+- Associated probability score
 
-Open-source projects: Scapy, LightGBM, Streamlit.
+**Handling Missing Features:**  
+If extracted features do not match the model input size, the system **automatically pads missing features** to maintain compatibility.
 
-Academic references on network intrusion detection.
+---
+
+## 🚀 Future Enhancements
+
+Planned improvements for the system include:
+
+- Real-time network packet capture
+- Additional ML features for higher detection accuracy
+- Cloud deployment for remote monitoring
+- Integration with **Zeek** or **Suricata** when dependency issues are resolved
+- Advanced threat visualization dashboards
+
+---
+
+## 📜 License
+
+This project is intended for **educational and research purposes only**.
+
+---
+
+## 🙏 Acknowledgements
+
+This project builds upon research and tools from the cybersecurity and open-source communities.
+
+Key technologies include:
+
+- **Scapy** – Packet analysis and feature extraction
+- **LightGBM** – Machine learning classification
+- **Streamlit** – Interactive dashboard framework
+
+Academic research on **machine learning for network intrusion detection** also inspired the system design.
