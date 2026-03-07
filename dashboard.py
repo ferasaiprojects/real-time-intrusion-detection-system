@@ -1,13 +1,4 @@
-"""
-dashboard.py — Redesigned AI-IDS Streamlit dashboard
-- More polished "real dashboard" layout: responsive grid for metric summaries,
-  distinct shaped cards, subtle gradients and glassy borders.
-- Sidebar theme selector preserved with safer CSS injection for both themes.
-- Clean sections (Upload, Model Info, Metrics, Charts, Table, Inspect, Export).
-- Keeps original safe_model loading and prediction utilities and feature padding.
-- Lightweight: no additional Python deps beyond Streamlit, pandas, joblib, altair (optional).
-"""
-
+# dashboard.py — Redesigned AI-IDS Streamlit dashboard (enhanced background + UI tweaks)
 import os
 import json
 import joblib
@@ -26,71 +17,197 @@ MODEL_PATH = os.path.join("models", "ids_model.pkl")
 DEFAULT_PCAP = os.path.join("sample_pcaps", "2026-02-28-traffic-analysis-exercise.pcap")
 EXPECTED_FEATURES = 42
 
-# ---------- Theme selector ----------
+# ---------- Sidebar theme + animation toggle ----------
 with st.sidebar:
     ui_theme = st.selectbox("UI Theme", ["Soft-Dark (recommended)", "Light (high-contrast)"], index=0)
+    animated_bg = st.checkbox("Animated background", value=True)
+    reduce_motion = st.checkbox("Prefer reduced motion (static bg)", value=False)
 
-# ---------- Unified CSS (cards, grid, badges, responsive) ----------
+# ---------- Enhanced Unified CSS (cards, grid, badges, animated background) ----------
+# --- tweak these variables to change the background look quickly ---
 _COMMON_CSS = r"""
 <style>
-:root{ --accent1: #4f6ef6; --accent2: #0fb6b0; }
+:root{
+  /* primary accents - tweak here */
+  --accent1: #4f6ef6;
+  --accent2: #0fb6b0;
+  --bg-1: #061224;
+  --bg-2: #03202b;
+  --glass-alpha: 0.12;
+  --glass-border: rgba(255,255,255,0.06);
+  --noise-alpha: 0.03;
+  --card-radius: 14px;
+  --card-padding: 14px;
+  --muted-dark: #9fb4d8;
+  --muted-light: #475569;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
 
-/* Layout containers */
+/* page / layout */
+.stApp {
+  position: relative;
+  z-index: 1;
+  padding-top: 24px;
+  padding-bottom: 48px;
+  overflow-x: hidden;
+}
+
+/* Background layers (full-bleed, sits behind the app) */
+.background {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background: linear-gradient(120deg, var(--bg-1) 0%, var(--bg-2) 60%);
+  transition: background 400ms linear;
+}
+
+/* animated gradient layer */
+.bg-animated {
+  position: absolute; inset: 0; opacity: 0.7; z-index: -2;
+  background: radial-gradient(800px 400px at 10% 30%, rgba(79,110,246,0.12), transparent 10%),
+              radial-gradient(600px 300px at 90% 70%, rgba(15,182,176,0.10), transparent 12%),
+              transparent;
+  filter: blur(40px) saturate(1.05);
+  transform: translate3d(0,0,0);
+  animation: gradientShift 18s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* subtle slow movement */
+@keyframes gradientShift {
+  0% { transform: translateY(0px) translateX(0px) scale(1); opacity:0.78; }
+  33% { transform: translateY(-18px) translateX(12px) scale(1.02); opacity:0.86; }
+  66% { transform: translateY(14px) translateX(-14px) scale(0.98); opacity:0.74; }
+  100% { transform: translateY(0px) translateX(0px) scale(1); opacity:0.78; }
+}
+
+/* tonal noise overlay (very light) */
+.bg-noise {
+  position:absolute; inset:0; z-index:-1; pointer-events:none;
+  background-image:
+    linear-gradient(transparent, rgba(0,0,0,var(--noise-alpha)));
+  mix-blend-mode: screen;
+  opacity: 0.25;
+}
+
+/* glass panel / cards */
 .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 18px; }
-.summary-card { border-radius: 14px; padding: 14px; position: relative; overflow: hidden; min-height: 96px; }
+.summary-card {
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  position: relative;
+  overflow: hidden;
+  min-height: 96px;
+  backdrop-filter: blur(6px) saturate(1.05);
+  -webkit-backdrop-filter: blur(6px) saturate(1.05);
+  border: 1px solid var(--glass-border);
+  background: linear-gradient(180deg, rgba(255,255,255,var(--glass-alpha)), rgba(255,255,255,0.02));
+  box-shadow: 0 6px 24px rgba(2,6,23,0.45);
+}
 .summary-card .title { font-size: 0.95rem; font-weight: 600; margin-bottom: 6px; }
-.summary-card .value { font-size: 1.6rem; font-weight: 700; }
-.summary-card .sub { font-size: 0.85rem; color: var(--muted, rgba(0,0,0,0.45)); }
+.summary-card .value { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.3px; }
+.summary-card .sub { font-size: 0.85rem; color: rgba(0,0,0,0.45); }
+
+/* glass highlight circle */
+.summary-card::after{
+  content: "";
+  position:absolute; right:-60px; top:-40px; width:160px; height:160px; opacity:0.07; transform:rotate(25deg);
+  border-radius: 50%;
+}
+
+/* badged label */
 .badge { display:inline-block; padding:6px 10px; border-radius:999px; font-size:0.8rem; font-weight:600; }
 
-/* glass border effect */
-.summary-card::after{ content: ""; position:absolute; right:-60px; top:-40px; width:160px; height:160px; opacity:0.08; transform:rotate(25deg); }
-
-/* Dark theme overrides (Soft-Dark) */
-.soft-dark .stApp { background: linear-gradient(90deg,#07182a 0%, #041022 100%) !important; color: #d4e8ff !important; }
-.soft-dark .summary-card { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); box-shadow: 0 8px 30px rgba(2,6,23,0.6); color: #d4e8ff; }
-.soft-dark .summary-card::after { background: radial-gradient(circle at 30% 20%, var(--accent1), transparent 40%); }
-.soft-dark .badge { color: #041022; }
-
-/* Light theme overrides */
-.light .stApp { background: #ffffff !important; color: #121826 !important; }
-.light .summary-card { background: linear-gradient(180deg,#ffffff,#f7f9fb); box-shadow: 0 6px 18px rgba(16,24,40,0.06); color: #0f1724; }
-.light .summary-card::after { background: radial-gradient(circle at 30% 20%, var(--accent2), transparent 40%); }
-
-/* Accent stripes */
+/* Accent stripe */
 .stripe { height:6px; border-radius:6px; margin-bottom:8px; }
 .stripe.accent { background: linear-gradient(90deg,var(--accent1),var(--accent2)); }
 
-/* Table header tweaks (kept conservative) */
+/* Table header minor tweak (conservative) */
 div[data-testid="stDataFrameContainer"] table thead th { font-weight:600; }
 
-/* Small responsive tweaks */
+/* small responsive tweaks */
 @media (max-width:880px){ .card-grid { grid-template-columns: 1fr; } }
+
+/* THEME OVERRIDES */
+/* Soft-Dark theme */
+.soft-dark .stApp { color: #d4e8ff !important; }
+.soft-dark .summary-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  box-shadow: 0 10px 40px rgba(2,6,23,0.6);
+  color: #d4e8ff;
+}
+.soft-dark .summary-card::after { background: radial-gradient(circle at 30% 20%, var(--accent1), transparent 40%); }
+.soft-dark .badge { color: #041022; }
+
+/* Light theme */
+.light .stApp { color: #0f1724 !important; }
+.light .summary-card {
+  background: linear-gradient(180deg,#ffffff,#f7f9fb);
+  box-shadow: 0 6px 18px rgba(16,24,40,0.06);
+  color: #0f1724;
+}
+.light .summary-card::after { background: radial-gradient(circle at 30% 20%, var(--accent2), transparent 40%); }
+
+/* Accessibility: respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .bg-animated { animation: none !important; transform: none !important; }
+}
+
+/* explicit user-controlled reduced-motion/static fallbacks */
+.static-bg .bg-animated { animation: none !important; transform: none !important; opacity:0.7; }
+
+/* small header hero */
+.hero {
+  padding: 18px 18px;
+  border-radius: 12px;
+  margin-bottom: 18px;
+  display:flex;
+  gap: 10px;
+  align-items:center;
+  justify-content: space-between;
+}
+.hero .title { font-size:1.25rem; font-weight:700; letter-spacing:-0.2px; }
+.hero .subtitle { font-size:0.95rem; color: rgba(255,255,255,0.8); font-weight:500; }
+
+/* fallback for older browsers */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .summary-card { background: linear-gradient(180deg, rgba(0,0,0,0.045), rgba(255,255,255,0.02)); }
+}
 </style>
 """
 
-# theme-specific CSS fragments
-_SOFT_DARK_EXTRA = """
-<style>
-:root{ --muted: #9fb4d8; }
-</style>
+# ---------- Inject background & CSS ----------
+# Build the background HTML. We place it before the app markup so it's visually behind the app.
+bg_html = """
+<div class="background">
+  <div class="bg-animated" aria-hidden="true"></div>
+  <div class="bg-noise" aria-hidden="true"></div>
+</div>
 """
+st.markdown(_COMMON_CSS, unsafe_allow_html=True)
 
-_LIGHT_EXTRA = """
-<style>
-:root{ --muted: #475569; }
-</style>
-"""
-
-# inject CSS
+# wrap app in theme container (keeps scoping consistent)
 if ui_theme.startswith("Soft"):
-    st.markdown('<div class="soft-dark">', unsafe_allow_html=True)
-    st.markdown(_COMMON_CSS + _SOFT_DARK_EXTRA, unsafe_allow_html=True)
+    wrapper_open = '<div class="soft-dark %s">' % ("" if animated_bg and not reduce_motion else "static-bg")
 else:
-    st.markdown('<div class="light">', unsafe_allow_html=True)
-    st.markdown(_COMMON_CSS + _LIGHT_EXTRA, unsafe_allow_html=True)
+    wrapper_open = '<div class="light %s">' % ("" if animated_bg and not reduce_motion else "static-bg")
 
-# ---------- Utilities (unchanged, but clearer typing) ----------
+# only insert the background markup if animations are enabled; otherwise insert a static background container
+if animated_bg and not reduce_motion:
+    st.markdown(bg_html, unsafe_allow_html=True)
+else:
+    # static fallback: single subtle radial highlights (no animation)
+    static_bg_html = """
+    <div class="background" style="background: linear-gradient(120deg, #08172a 0%, #01202a 70%);">
+      <div class="bg-noise" aria-hidden="true"></div>
+    </div>
+    """
+    st.markdown(static_bg_html, unsafe_allow_html=True)
+
+st.markdown(wrapper_open, unsafe_allow_html=True)
+
+# ---------- Utilities (unchanged) ----------
 @st.cache_resource
 def load_model(path: str = MODEL_PATH):
     if not os.path.exists(path):
@@ -179,11 +296,28 @@ st.markdown("""
 Upload a PCAP, choose a label scheme, and run detection. The dashboard is responsive and organized into clear sections.
 """)
 
+# small hero with glass background
+st.markdown(
+    """
+    <div class="summary-card hero" style="display:flex; align-items:center; justify-content:space-between;">
+      <div>
+        <div class="title">AI Intrusion Detection</div>
+        <div class="sub">Upload PCAP → Extract features → Run model</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-weight:600">Theme: %s</div>
+        <div style="font-size:0.88rem; color: rgba(255,255,255,0.65)">Animated background: %s</div>
+      </div>
+    </div>
+    """ % (ui_theme, "On" if animated_bg and not reduce_motion else "Off"),
+    unsafe_allow_html=True,
+)
+
 left, right = st.columns([2, 1])
 with left:
     st.subheader("1) Upload PCAP")
     uploaded = st.file_uploader("Upload PCAP (.pcap)", type=["pcap"])
-    sample_choice = st.selectbox("Or choose sample", ["Default sample (recommended)", "No sample / upload only"]) 
+    sample_choice = st.selectbox("Or choose sample", ["Default sample (recommended)", "No sample / upload only"])
     if uploaded is not None:
         pcap_path = "temp_uploaded.pcap"
         with open(pcap_path, "wb") as f:
@@ -195,7 +329,7 @@ with left:
 
 with right:
     st.subheader("Model & Quick Info")
-    st.markdown("""
+    st.markdown(""" 
     <div class="summary-card" style="padding:12px">
       <div class="stripe accent"></div>
       <div class="title">Model Path</div>
@@ -394,11 +528,8 @@ else:
         "This dashboard extracts features from PCAPs and runs a trained ML model to detect suspicious activity.\n\nUse the controls on the left to configure labels, thresholds and run detection.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# close theme wrapper if opened
-if ui_theme.startswith("Soft"):
-    st.markdown('</div>', unsafe_allow_html=True)
-else:
-    st.markdown('</div>', unsafe_allow_html=True)
+# close theme wrapper
+st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
 st.markdown("Made with ❤️ by the AI-IDS team")
