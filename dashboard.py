@@ -1,8 +1,12 @@
+# dashboard.py — AI-IDS Streamlit dashboard (multi-sample, thumbnails, keyboard shortcut, optional AgGrid)
+# Drop this file into your app folder and run: streamlit run dashboard.py
+
 import os
 import glob
 import tempfile
 import joblib
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+import time
 
 import pandas as pd
 import streamlit as st
@@ -14,7 +18,6 @@ st.set_page_config(page_title="AI Intrusion Detection System", page_icon="🛡�
 
 # ---------- Paths & constants ----------
 MODEL_PATH = os.path.join("models", "ids_model.pkl")
-# default filename (we'll search for it across common sample dirs)
 DEFAULT_PCAP_FILENAME = "2026-02-28-traffic-analysis-exercise.pcap"
 SAMPLE_DIR_CANDIDATES = ["sample_pcap", "sample_pcaps", "sample_pcap/", "sample_pcaps/", "sample_pcap_files"]
 EXPECTED_FEATURES = 42
@@ -22,14 +25,12 @@ MAX_TOP_ROWS = 500
 
 # ---------- Utilities ----------
 def clear_model_cache():
-    """Try multiple cache-clearing APIs and clear common session_state keys."""
     for key in ["loaded_model", "model_cached", "model"]:
         if key in st.session_state:
             try:
                 del st.session_state[key]
             except Exception:
                 pass
-    # Try different APIs without raising
     try:
         st.cache_resource.clear()
     except Exception:
@@ -41,17 +42,15 @@ def clear_model_cache():
             except Exception:
                 pass
 
+
 def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*.pcap") -> List[str]:
-    """Search candidate directories (non-recursive + recursive) and return absolute paths sorted by name."""
     found = []
-    # first check common directories non-recursively
     for d in dirs:
         if os.path.isdir(d):
             entries = glob.glob(os.path.join(d, pattern))
             for e in entries:
                 if os.path.isfile(e):
                     found.append(os.path.abspath(e))
-    # then a broader recursive search once
     for d in dirs:
         pattern_recursive = os.path.join(d, "**", pattern)
         matches = glob.glob(pattern_recursive, recursive=True)
@@ -60,7 +59,6 @@ def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*
                 ab = os.path.abspath(m)
                 if ab not in found:
                     found.append(ab)
-    # also check working directory top-level
     top_level = glob.glob(pattern)
     for t in top_level:
         if os.path.isfile(t):
@@ -69,6 +67,48 @@ def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*
                 found.append(ab)
     found = sorted(found)
     return found
+
+
+# cache sample summary to avoid repeated heavy parsing
+@st.cache_data(ttl=300)
+def get_sample_summary(path: str) -> Dict[str, Any]:
+    """Return a small summary for a sample pcap used as a thumbnail.
+    Attempts to call extract_features_from_pcap for a quick flow preview; falls back to file metadata.
+    """
+    summary: Dict[str, Any] = {}
+    try:
+        summary["path"] = os.path.abspath(path)
+        summary["name"] = os.path.basename(path)
+        summary["size_bytes"] = os.path.getsize(path)
+        summary["modified_time"] = time.ctime(os.path.getmtime(path))
+        # attempt to extract features (may be heavy for many files, but cached)
+        try:
+            df = extract_features_from_pcap(path)
+            if isinstance(df, pd.DataFrame) and df.shape[0] > 0:
+                summary["num_flows"] = int(df.shape[0])
+                # grab a compact preview of first row (top 6 columns)
+                first_row = df.reset_index(drop=True).iloc[0]
+                preview = {}
+                for i, col in enumerate(first_row.index):
+                    if i >= 6:
+                        break
+                    val = first_row[col]
+                    # convert numpy types
+                    try:
+                        preview[col] = float(val) if pd.api.types.is_numeric_dtype(type(val)) else str(val)
+                    except Exception:
+                        preview[col] = str(val)
+                summary["preview"] = preview
+            else:
+                summary["num_flows"] = 0
+                summary["preview"] = {}
+        except Exception as e:
+            summary["num_flows"] = None
+            summary["preview_error"] = str(e)
+    except Exception as e:
+        summary = {"path": path, "name": os.path.basename(path), "error": str(e)}
+    return summary
+
 
 # ---------- CSS for theme & headers ----------
 _COMMON_CSS = r"""
@@ -81,16 +121,18 @@ _COMMON_CSS = r"""
 .summary-card .sub { font-size: 0.82rem; color: var(--muted, rgba(0,0,0,0.45)); }
 .section-header { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; border-left:6px solid var(--accent1); background: rgba(255,255,255,0.02); margin-bottom:8px; }
 .section-header h3 { margin:0; font-size:1.05rem; }
+.sample-card { border-radius:8px; padding:8px; background: rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.03); margin-bottom:8px; }
+.sample-card .meta { font-size:0.82rem; color:var(--muted-light); }
 @media (max-width:880px){ .card-grid { grid-template-columns: 1fr; } }
 </style>
 """
 
-# theme fragments (we'll wrap the main app in a themed div)
 _DARK_CSS = """
 <style>
 .stApp { background: linear-gradient(180deg,#041022,#07182a) !important; color: #e6f0ff !important; }
 .summary-card { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); box-shadow: 0 8px 30px rgba(2,6,23,0.6); color: #e6f0ff; }
 .section-header { background: rgba(255,255,255,0.02); }
+.sample-card { background: rgba(255,255,255,0.02); }
 </style>
 """
 
@@ -99,6 +141,7 @@ _LIGHT_CSS = """
 .stApp { background: linear-gradient(180deg,#f8fafc,#eef2ff) !important; color: #071023 !important; }
 .summary-card { background: linear-gradient(180deg,#ffffff,#f7f9fb); box-shadow: 0 6px 18px rgba(16,24,40,0.06); color: #071023; }
 .section-header { background: rgba(0,0,0,0.02); }
+.sample-card { background: rgba(255,255,255,0.98); }
 </style>
 """
 
@@ -185,7 +228,6 @@ with st.sidebar:
 
 # ---------- Inject CSS & theme wrapper ----------
 st.markdown(_COMMON_CSS, unsafe_allow_html=True)
-# open wrapper div for theme-specific styling so that theme class influences contained elements
 if ui_theme.startswith("Soft"):
     st.markdown('<div class="soft-dark">', unsafe_allow_html=True)
     st.markdown(_DARK_CSS, unsafe_allow_html=True)
@@ -193,7 +235,6 @@ else:
     st.markdown('<div class="light">', unsafe_allow_html=True)
     st.markdown(_LIGHT_CSS, unsafe_allow_html=True)
 
-# optional professional background
 if background_style.startswith("Professional"):
     st.markdown("""
     <style>
@@ -205,13 +246,20 @@ if background_style.startswith("Professional"):
 try:
     model = load_model()
 except FileNotFoundError:
-    st.sidebar.error(f"Model missing at {MODEL_PATH}. Upload or place the model file in 'models/'.")
+    st.sidebar.error(f"Model missing at {MODEL_PATH}. Upload or place the model file in 'models'.")
     model = None
 except Exception as e:
     st.sidebar.error(f"Error loading model: {e}")
     model = None
 
-# ---------- Main UI: Header, PCAP selection ----------
+# ---------- Try to import AgGrid (optional) ----------
+try:
+    from st_aggrid import AgGrid, GridOptionsBuilder
+    aggrid_available = True
+except Exception:
+    aggrid_available = False
+
+# ---------- Main UI ----------
 st.markdown("# 🛡️ AI-Powered Intrusion Detection System")
 st.markdown("Upload a PCAP, choose label scheme and run detection. The dashboard focuses on readable, accessible statistics.")
 
@@ -220,10 +268,8 @@ left, right = st.columns([2, 1])
 with left:
     st.markdown('<div class="section-header"><h3>1) PCAP Source</h3></div>', unsafe_allow_html=True)
 
-    # find all sample pcaps once
     sample_list = find_sample_pcaps()
 
-    # default selection mode: choose default from dropdown OR upload custom
     source_mode = st.radio("Choose PCAP source:", ["Use default sample (recommended)", "Upload custom PCAP"], index=0)
 
     pcap_path = None
@@ -231,17 +277,11 @@ with left:
 
     if source_mode.startswith("Use default"):
         if sample_list:
-            # build readable labels — filename only
             filenames = [os.path.basename(p) for p in sample_list]
-            selected_idx = 0
-            try:
-                # remember last selected default across reruns if present
-                selected_idx = int(st.session_state.get("selected_default_idx", 0))
-            except Exception:
+            selected_idx = st.session_state.get("selected_default_idx", 0)
+            if selected_idx >= len(filenames):
                 selected_idx = 0
-            # show dropdown of available samples
             sel = st.selectbox("Select default sample:", options=filenames, index=selected_idx)
-            # update session state index so selection persists
             sel_idx = filenames.index(sel)
             st.session_state["selected_default_idx"] = sel_idx
             default_selected = sample_list[sel_idx]
@@ -258,7 +298,6 @@ with left:
                 tmp.close()
                 pcap_path = tmp.name
     else:
-        # upload mode selected
         uploaded = st.file_uploader("Upload PCAP (.pcap)", type=["pcap"])  # shown only in upload mode
         if uploaded is not None:
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pcap")
@@ -272,7 +311,41 @@ with left:
     st.markdown("**PCAP path:**")
     st.write(pcap_path if pcap_path else "No PCAP selected")
 
+    # quick hint for keyboard shortcut
+    st.markdown("Press **R** to re-run inference (keyboard shortcut)")
+
 with right:
+    st.markdown('<div class="section-header"><h3>Samples</h3></div>', unsafe_allow_html=True)
+
+    if sample_list:
+        # Display a compact scrollable list of sample cards
+        for sp in sample_list:
+            s = get_sample_summary(sp)
+            # make the currently selected sample visually distinct
+            highlight = (pcap_path == s.get("path"))
+            card_html = f"""
+            <div class='sample-card' style='border: 1px solid {'#0b76ff' if highlight else 'rgba(255,255,255,0.03)'};'>
+              <div style='display:flex; justify-content:space-between; align-items:center;'>
+                <div style='font-weight:700'>{s.get('name')}</div>
+                <div class='meta'>{s.get('num_flows', '?')} flows</div>
+              </div>
+              <div style='font-size:0.85rem; margin-top:6px;'>Size: {s.get('size_bytes', '?')} bytes<br>Modified: {s.get('modified_time', '-')}
+              </div>
+            </div>
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
+            # show small preview table for first flow if available
+            if s.get("preview"):
+                try:
+                    preview_df = pd.DataFrame([s.get("preview")])
+                    st.dataframe(preview_df, height=90)
+                except Exception:
+                    st.write(s.get("preview"))
+            elif s.get("preview_error"):
+                st.caption("Preview error: " + str(s.get("preview_error")))
+    else:
+        st.info("No sample files found. Place .pcap files in one of the sample directories or upload a custom PCAP.")
+
     st.markdown('<div class="section-header"><h3>Model & Quick Info</h3></div>', unsafe_allow_html=True)
     model_info_html = f"""
     <div class="summary-card" style="padding:12px">
@@ -406,10 +479,14 @@ if do_run and pcap_path and model is not None:
         display_cols = ["label", "malicious_probability", "prediction_int"] + [c for c in top.columns if c.startswith("dummy_")][:3]
         display_cols = [c for c in display_cols if c in top.columns]
         display_df = top[display_cols]
-        if highlight_suspicious:
+
+        # Use AgGrid if available for better interactivity
+        if aggrid_available:
             try:
-                styled = display_df.style.apply(lambda row: ["background-color: rgba(255,0,0,0.10)" if row["malicious_probability"] >= threshold else "" for _ in row], axis=1)
-                st.dataframe(styled, height=400)
+                gb = GridOptionsBuilder.from_dataframe(display_df)
+                gb.configure_selection(selection_mode='single', use_checkbox=True)
+                grid_options = gb.build()
+                grid_response = AgGrid(display_df, gridOptions=grid_options, height=350)
             except Exception:
                 st.dataframe(display_df, height=400)
         else:
@@ -448,6 +525,26 @@ if ui_theme.startswith("Soft"):
     st.markdown('</div>', unsafe_allow_html=True)
 else:
     st.markdown('</div>', unsafe_allow_html=True)
+
+# ---------- Keyboard shortcut (R to rerun) ----------
+# This injects a small script that listens for 'r' or 'R' keypress and clicks the Extract & Predict button
+st.markdown("""
+<script>
+window.addEventListener('keydown', function(e) {
+  if (e.key === 'r' || e.key === 'R') {
+    // find button containing the text 'Extract & Predict'
+    const buttons = document.querySelectorAll('button');
+    for (let i=0;i<buttons.length;i++){
+      const b = buttons[i];
+      if (b.innerText && b.innerText.includes('Extract & Predict')){
+        b.click();
+        break;
+      }
+    }
+  }
+});
+</script>
+""", unsafe_allow_html=True)
 
 st.markdown("---")
 st.markdown("Made with ❤️ by the AI-IDS team")
