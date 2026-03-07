@@ -31,98 +31,104 @@ EXPECTED_FEATURES = 42  # change if your model expects a different number
 st.markdown(
     """
 <style>
-/* ---------- Global page + base text ---------- */
+/* ---------- Page base (softer text color) ---------- */
 .stApp {
   background: linear-gradient(90deg,#081224 0%, #041022 100%);
-  color: #e6eef8;
+  color: #dbe9ff; /* softer than stark white */
 }
 
-/* Make virtually everything use the same high-contrast color */
-.stApp, .stApp * {
-  color: #e6eef8 !important;
-  -webkit-text-fill-color: #e6eef8 !important;
-}
-
-/* ---------- Card container ---------- */
+/* ---------- Card container (safe) ---------- */
 .card {
-  background: rgba(255,255,255,0.03);
-  border-radius: 12px;
+  background: rgba(255,255,255,0.026);
+  border-radius: 10px;
   padding: 12px;
   margin-bottom: 12px;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.35);
 }
 
-/* ---------- Metrics (labels + values) ---------- */
+/* ---------- Headings & general text (targeted) ---------- */
+/* Avoid global * selector — target common element types only */
+.stApp h1, .stApp h2, .stApp h3,
+.stApp p, .stApp label, .stApp span, .stApp div, .stApp li {
+  color: #dbe9ff !important;
+}
+
+/* ---------- Metrics (label + value) ---------- */
 .stMetric .metric-label, .stMetric .metric-value,
 .metric-label, .metric-value {
-  color: #e6eef8 !important;
+  color: #e8f4ff !important;
 }
 .stMetric .metric-value, .metric-value {
-  font-size: 1.5rem !important;
+  font-size: 1.4rem !important;
   font-weight: 600 !important;
 }
 
-/* ---------- Buttons & download buttons ---------- */
+/* ---------- Buttons & download buttons (readable, but not blinding) ---------- */
 .stButton>button, .stDownloadButton>button, button {
   color: #ffffff !important;
-  background-image: linear-gradient(90deg,#6366f1,#06b6d4) !important;
+  background-image: linear-gradient(90deg,#5661d8,#14b8b6) !important;
   border: none !important;
-  box-shadow: 0 6px 18px rgba(3,7,18,0.6) !important;
+  box-shadow: 0 6px 14px rgba(2,6,23,0.45) !important;
   padding: 8px 12px !important;
+  border-radius: 8px !important;
 }
 .stButton>button span, .stDownloadButton>button span {
   color: #ffffff !important;
+  font-weight: 600;
 }
 
-/* ---------- Inputs / selects / textareas ---------- */
-/* Generic inputs/select/textarea so text inside is visible */
+/* ---------- Inputs / selects / textareas (ensure visibility) ---------- */
+/* Generic inputs so text inside is visible without changing internal layout too much */
 input, textarea, select, option {
-  color: #e6eef8 !important;
-  background-color: rgba(255,255,255,0.03) !important;
-  border: 1px solid rgba(255,255,255,0.06) !important;
+  color: #dbe9ff !important;
+  background-color: rgba(255,255,255,0.02) !important;
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  border-radius: 6px;
 }
 
-/* Streamlit widget inner inputs (best effort selectors) */
+/* Streamlit-specific widget input targeting (best-effort, non-invasive) */
 div[data-testid="stTextInput"] input,
 div[data-testid="stTextArea"] textarea,
-div[data-testid="stSelectbox"] div[role="listbox"],
-div[data-testid="stNumberInput"] input {
-  color: #e6eef8 !important;
+div[data-testid="stNumberInput"] input,
+div[data-testid="stSelectbox"] div[role="button"] {
+  color: #dbe9ff !important;
 }
 
 /* ---------- DataFrame / table styling ---------- */
 div[data-testid="stDataFrameContainer"] table thead th {
-  color: #e6eef8 !important;
-  background: rgba(255,255,255,0.04) !important;
-  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+  color: #e8f4ff !important;
+  background: rgba(255,255,255,0.028) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.04) !important;
 }
 div[data-testid="stDataFrameContainer"] table tbody td {
-  color: #e6eef8 !important;
-  background: rgba(255,255,255,0.02) !important;
+  color: #dbe9ff !important;
+  background: rgba(255,255,255,0.01) !important;
 }
 
-/* ---------- Sidebar (explicitly target sidebar container) ---------- */
+/* ---------- Sidebar styling (non-invasive) ---------- */
 div[data-testid="stSidebar"] {
-  background: linear-gradient(180deg, rgba(0,0,0,0.12), rgba(255,255,255,0.01)) !important;
-  color: #e6eef8 !important;
+  background: linear-gradient(180deg, rgba(0,0,0,0.06), rgba(255,255,255,0.00)) !important;
+  color: #dbe9ff !important;
+}
+div[data-testid="stSidebar"] label,
+div[data-testid="stSidebar"] p,
+div[data-testid="stSidebar"] span,
+div[data-testid="stSidebar"] .stText {
+  color: #dbe9ff !important;
 }
 
-/* Ensure labels inside forms and sidebar are readable */
-div[data-testid="stSidebar"] label, div[data-testid="stSidebar"] p, div[data-testid="stSidebar"] span {
-  color: #e6eef8 !important;
-}
+/* ---------- Footer / small text ---------- */
+.footer { color: #9fb4d8 !important; font-size: 0.9em !important; }
 
-/* ---------- Small text / footer ---------- */
-.footer { color: #9aaed6 !important; font-size: 0.9em !important; }
-
-/* ---------- Responsive: stack and padding tweaks ---------- */
+/* ---------- Responsive behavior (stack on small screens) ---------- */
 @media (max-width: 880px) {
   .block-container { padding-left: 0.9rem !important; padding-right: 0.9rem !important; }
   .stButton>button, .stDownloadButton>button { width: 100% !important; display: block !important; }
 }
 @media (max-width: 520px) {
-  .stMetric .metric-value { font-size: 1.3rem !important; }
+  .stMetric .metric-value { font-size: 1.2rem !important; }
   .card { padding: 10px !important; }
+  .stButton>button, .stDownloadButton>button { padding: 10px 14px !important; }
 }
 </style>
     """,
