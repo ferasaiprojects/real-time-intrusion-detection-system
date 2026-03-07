@@ -55,27 +55,48 @@ def clear_model_cache():
 
 
 def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*.pcap") -> List[str]:
+    """Search candidate directories and top-level for .pcap files and return a deduplicated sorted list.
+
+    This function normalizes paths using realpath/abspath so the same file won't appear twice
+    due to differing path strings (e.g. 'sample_pcap' vs 'sample_pcap/').
+    """
+    found_set = set()
     found = []
+
+    def _add_path(p: str):
+        ab = os.path.realpath(os.path.abspath(p))
+        if ab not in found_set and os.path.isfile(ab):
+            found_set.add(ab)
+            found.append(ab)
+
+    # non-recursive scans for each candidate dir
     for d in dirs:
-        if os.path.isdir(d):
-            entries = glob.glob(os.path.join(d, pattern))
-            for e in entries:
-                if os.path.isfile(e):
-                    found.append(os.path.abspath(e))
+        try:
+            if not d:
+                continue
+            if os.path.isdir(d):
+                for e in glob.glob(os.path.join(d, pattern)):
+                    _add_path(e)
+        except Exception:
+            # ignore unreadable dirs
+            continue
+
+    # recursive search (catch nested samples)
     for d in dirs:
-        pattern_recursive = os.path.join(d, "**", pattern)
-        matches = glob.glob(pattern_recursive, recursive=True)
-        for m in matches:
-            if os.path.isfile(m):
-                ab = os.path.abspath(m)
-                if ab not in found:
-                    found.append(ab)
-    top_level = glob.glob(pattern)
-    for t in top_level:
-        if os.path.isfile(t):
-            ab = os.path.abspath(t)
-            if ab not in found:
-                found.append(ab)
+        try:
+            if os.path.isdir(d):
+                for m in glob.glob(os.path.join(d, "**", pattern), recursive=True):
+                    _add_path(m)
+        except Exception:
+            continue
+
+    # also check top-level project dir
+    try:
+        for t in glob.glob(pattern):
+            _add_path(t)
+    except Exception:
+        pass
+
     found = sorted(found)
     return found
 
@@ -88,7 +109,7 @@ def get_sample_summary(path: str) -> Dict[str, Any]:
     """
     summary: Dict[str, Any] = {}
     try:
-        summary["path"] = os.path.abspath(path)
+        summary["path"] = os.path.realpath(os.path.abspath(path))
         summary["name"] = os.path.basename(path)
         summary["size_bytes"] = os.path.getsize(path)
         summary["modified_time"] = time.ctime(os.path.getmtime(path))
@@ -104,7 +125,6 @@ def get_sample_summary(path: str) -> Dict[str, Any]:
                     if i >= 6:
                         break
                     val = first_row[col]
-                    # convert numpy types
                     try:
                         preview[col] = float(val) if pd.api.types.is_numeric_dtype(type(val)) else str(val)
                     except Exception:
@@ -233,16 +253,13 @@ with st.sidebar:
     run_on_upload = st.checkbox("Auto-run detection on upload", value=True)
 
     st.markdown("---")
-    # SAFE clear button: clear caches, then attempt safe rerun; never call attribute that may not exist without check
     if st.button("Clear cached model"):
-        # clear caches
         try:
             clear_model_cache()
             st.sidebar.success("Cache cleared (attempted).")
         except Exception as e:
             st.sidebar.error(f"Failed to clear cache: {e}")
 
-        # Try recommended rerun approaches in order, gracefully falling back to JS reload
         rerun_attempted = False
         try:
             if hasattr(st, "experimental_rerun"):
@@ -255,9 +272,7 @@ with st.sidebar:
             rerun_attempted = False
 
         if not rerun_attempted:
-            # Try the less-common internal rerun (older/newer Streamlit variants differ); wrap in try
             try:
-                # experimental function may exist under different names in some versions
                 if hasattr(st, "rerun"):
                     try:
                         st.rerun()
@@ -268,7 +283,6 @@ with st.sidebar:
                 rerun_attempted = False
 
         if not rerun_attempted:
-            # As a last resort, reload the browser window via JS. This is robust and works across Streamlit deployments.
             st.sidebar.info("Could not programmatically rerun the app. Reloading browser page as fallback...")
             st.markdown("<script>window.location.reload();</script>", unsafe_allow_html=True)
 
@@ -292,7 +306,7 @@ if background_style.startswith("Professional"):
 try:
     model = load_model()
 except FileNotFoundError:
-    st.sidebar.error(f"Model missing at {MODEL_PATH}. Upload or place the model file in 'models'.")
+    st.sidebar.error(f"Model missing at {MODEL_PATH}. Upload or place the model in 'models'.")
     model = None
 except Exception as e:
     st.sidebar.error(f"Error loading model: {e}")
