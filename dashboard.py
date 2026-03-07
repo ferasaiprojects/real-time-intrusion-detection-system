@@ -24,7 +24,7 @@ st.set_page_config(
 
 MODEL_PATH = os.path.join("models", "ids_model.pkl")
 DEFAULT_PCAP = os.path.join("sample_pcaps", "2026-02-28-traffic-analysis-exercise.pcap")
-EXPECTED_FEATURES = 42  # change if your model expects a different number
+EXPECTED_FEATURES = 42  
 
 # ---------- Theme selector (top of sidebar) ----------
 with st.sidebar:
@@ -43,11 +43,7 @@ _SOFT_DARK_CSS = r"""
   --accent-grad: linear-gradient(90deg,#5661d8,#14b8b6);
 }
 
-/* Page background + basic text (do not override every element) */
-.stApp {
-  background: linear-gradient(90deg,var(--bg-start) 0%, var(--bg-end) 100%) !important;
-  color: var(--text) !important;
-}
+
 
 /* Card containers */
 .card {
