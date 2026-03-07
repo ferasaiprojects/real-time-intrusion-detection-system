@@ -7,6 +7,7 @@ AI-IDS is a Python-based intrusion detection system that processes PCAP network 
 
 ---
 
+
 ## ⚙️ Features
 - **PCAP Analysis:** Supports custom PCAP file uploads.
 - **ML-based Detection:** LightGBM model classifies traffic as `BENIGN` or `SUSPICIOUS`.
