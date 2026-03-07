@@ -141,48 +141,82 @@ def get_sample_summary(path: str) -> Dict[str, Any]:
     return summary
 
 
-# ---------- CSS for theme & headers ----------
+# ---------- CSS for theme & headers (UPDATED: enforce 2x2 summary grid) ----------
 _COMMON_CSS = r"""
 <style>
-:root{ --accent1: #0b76ff; --accent2: #00b894; --muted-dark: #9fb4d8; --muted-light: #475569; }
-.card-grid { 
-    display: grid; 
-    grid-template-columns: repeat(2, 1fr); 
-    gap: 16px; 
-    margin-bottom: 18px; 
-}
-.summary-card { 
-    border-radius: 12px; 
-    padding: 16px; 
-    position: relative; 
-    overflow: hidden; 
-    min-height: 100px; 
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
-}
-.summary-card .title { 
-    font-size: 0.9rem; 
-    font-weight: 600; 
-    opacity: 0.8;
+:root{
+  --accent1: #0b76ff; 
+  --accent2: #00b894; 
+  --muted-dark: #9fb4d8; 
+  --muted-light: #475569; 
+  --card-bg: rgba(255,255,255,0.02);
 }
 
-.summary-card .value { 
-    font-size: 1.8rem; 
-    font-weight: 800; 
-    margin-top: 4px;
+/* Grid: fixed two columns on wide screens, single column on narrow */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr)); /* <-- enforce 2 columns */
+  gap: 18px;
+  margin-bottom: 18px;
+  align-items: stretch;
 }
 
-.summary-card .sub { 
-    font-size: 0.8rem; 
-    opacity: 0.7;
+/* Card layout */
+.summary-card {
+  border-radius: 12px;
+  padding: 14px;
+  position: relative;
+  overflow: hidden;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  background: var(--card-bg);
+  border: 1px solid rgba(255,255,255,0.03);
 }
+
+/* make KPI content structured */
+.summary-card .title {
+  font-size: 0.90rem;
+  font-weight: 700;
+  color: var(--muted-light);
+  letter-spacing: 0.2px;
+}
+
+.summary-card .value {
+  font-size: 1.8rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--accent1);
+  display: block;
+}
+
+/* secondary text */
+.summary-card .sub {
+  font-size: 0.82rem;
+  color: var(--muted-dark);
+  opacity: 0.95;
+}
+
+/* subtle accent bar on left */
+.summary-card.kpi {
+  border-left: 6px solid var(--accent2);
+  padding-left: 12px;
+}
+
+/* compact sample / other card tweaks */
 .section-header { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; border-left:6px solid var(--accent1); background: rgba(255,255,255,0.02); margin-bottom:8px; }
 .section-header h3 { margin:0; font-size:1.05rem; }
 .sample-card { border-radius:8px; padding:8px; background: rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.03); margin-bottom:8px; }
 .sample-card .meta { font-size:0.82rem; color:var(--muted-light); }
-@media (max-width:880px){ .card-grid { grid-template-columns: 1fr; } }
+
+/* Responsive: single column on small screens */
+@media (max-width:880px){
+  .card-grid { grid-template-columns: 1fr; }
+  .summary-card { min-height: 84px; padding: 12px; }
+  .summary-card .value { font-size: 1.5rem; }
+}
 </style>
 """
 
@@ -513,7 +547,7 @@ if do_run and pcap_path and model is not None:
     for title, value, sub in kpis:
         st.markdown(
             f"""
-            <div class='summary-card'>
+            <div class='summary-card kpi'>
               <div class='title'>{title}</div>
               <div class='value'>{value}</div>
               <div class='sub'>{sub}</div>
