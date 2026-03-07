@@ -160,6 +160,7 @@ _COMMON_CSS = r"""
     display: flex;
     flex-direction: column;
     justify-content: center;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
 }
 .summary-card .title { 
     font-size: 0.9rem; 
