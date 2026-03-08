@@ -309,7 +309,7 @@ with st.sidebar:
 
     threshold = st.slider("Probability threshold (suspicious)", 0.0, 1.0, 0.60, 0.01)
     prob_filter = st.slider("Show flows with prob >=", 0.0, 1.0, 0.0, 0.01)
-    top_n = int(st.number_input("Top N suspicious flows", min_value=5, max_value=MAX_TOP_ROWS, value=20))
+    top_n = int(st.number_input("Top N suspicious flows", min_value=5, max_value=MAX_TOP_ROWS, value=50))
     show_raw = st.checkbox("Show raw features (large)", value=False)
     highlight_suspicious = st.checkbox("Highlight suspicious rows", value=True)
     run_on_upload = st.checkbox("Auto-run detection on upload", value=True)
