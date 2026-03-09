@@ -1,8 +1,3 @@
-"""
-Streamlit dashboard for AI Intrusion Detection System
-Merged: soft theme + large title + threat color card + metrics + robust extractor/predict plumbing.
-"""
-
 import os
 import glob
 import tempfile
@@ -318,6 +313,7 @@ with st.sidebar:
             except Exception:
                 st.sidebar.info("Could not programmatically rerun the app. Reload the browser page as fallback.")
 
+
 # ---------- Inject CSS & theme wrapper ----------
 st.markdown(_COMMON_CSS, unsafe_allow_html=True)
 if ui_theme.startswith("Soft"):
@@ -573,6 +569,10 @@ if do_run and pcap_path and model is not None:
         lbl1 = custom_label_1 if custom_label_1 else "MALICIOUS"
         results["label"] = results["prediction_int"].map({0: lbl0, 1: lbl1})
 
+    # ---- NEW: canonical severity column used for chart color mapping ----
+    # Always derive severity from probability to ensure consistent coloring:
+    results["severity"] = results["malicious_probability"].apply(map_severity_by_prob)
+
     total = len(results)
     attacks = int(results["prediction_int"].sum())
     normals = total - attacks
@@ -615,42 +615,91 @@ if do_run and pcap_path and model is not None:
 
     section_card("Summary", render_summary)
 
-    # Charts & Table
+    # -------------------------
+    # Charts & Table (updated for colored charts based on severity)
+    # -------------------------
     def render_charts_and_table():
         st.markdown("### Traffic Overview")
+
+        # canonical color map for severity
+        severity_color_map = {
+            "HIGH": "#ff4c4c",    # red
+            "MEDIUM": "#ff9800",  # orange
+            "LOW": "#4caf50",     # green
+            "NORMAL": "#6ec6ff"   # soft blue for normal/ok
+        }
+        # Attempt Altair charts with colors; fallback to simple charts if Altair not available
         try:
             import altair as alt
-            label_counts = results.groupby("label").size().reset_index(name="count").sort_values("count", ascending=False)
+
+            # 1) Traffic Overview: group by severity (consistent coloring)
+            counts = results.groupby("severity").size().reset_index(name="count")
+            # ensure deterministic ordering
+            severity_order = ["HIGH", "MEDIUM", "LOW", "NORMAL"]
+            counts["severity"] = pd.Categorical(counts["severity"], categories=severity_order, ordered=True)
+            counts = counts.sort_values("severity")
+
             bar = (
-                alt.Chart(label_counts)
+                alt.Chart(counts)
                 .mark_bar()
-                .encode(x=alt.X("label:N", title="Label", sort="-y"), y=alt.Y("count:Q", title="Count"), tooltip=["label", "count"])
+                .encode(
+                    x=alt.X("severity:N", title="Severity", sort=severity_order),
+                    y=alt.Y("count:Q", title="Count"),
+                    color=alt.Color("severity:N", scale=alt.Scale(domain=list(severity_color_map.keys()), range=list(severity_color_map.values())), legend=None),
+                    tooltip=["severity", "count"]
+                )
                 .properties(height=220)
             )
             st.altair_chart(bar, use_container_width=True)
-        except Exception:
-            st.bar_chart(results["label"].value_counts())
 
-        st.markdown("### Probability Distribution")
-        try:
-            import altair as alt
+            st.markdown("### Probability Distribution")
+            # 2) Probability Distribution: stacked histogram by severity (bins colored by severity)
+            # create a severity column already present; use it to color/stack bins
             hist = (
                 alt.Chart(results)
                 .mark_bar()
                 .encode(
                     x=alt.X("malicious_probability:Q", bin=alt.Bin(maxbins=40), title="Malicious probability"),
                     y=alt.Y("count():Q", title="Flows"),
+                    color=alt.Color("severity:N", title="Severity", scale=alt.Scale(domain=list(severity_color_map.keys()), range=list(severity_color_map.values()))),
                     tooltip=[alt.Tooltip("count()", title="Flows")]
                 )
                 .properties(height=220)
             )
             st.altair_chart(hist, use_container_width=True)
+
+            st.markdown("### Attack Probability Over Sample")
+            # 3) Attack Probability Over Sample: use row order (sample index) and color by severity
+            # create a row index column for plotting
+            plot_df = results.reset_index().rename(columns={"index": "row_index"})
+            # ensure severity is categorical with our ordering for consistent legend
+            plot_df["severity"] = pd.Categorical(plot_df["severity"], categories=severity_order, ordered=True)
+
+            line = (
+                alt.Chart(plot_df.head(200))
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("row_index:Q", title="Sample index"),
+                    y=alt.Y("malicious_probability:Q", title="Malicious probability"),
+                    color=alt.Color("severity:N", scale=alt.Scale(domain=list(severity_color_map.keys()), range=list(severity_color_map.values())), legend=alt.Legend(title="Severity")),
+                    tooltip=["row_index", alt.Tooltip("malicious_probability", format=".3f"), "severity"]
+                )
+                .properties(height=220)
+            )
+            st.altair_chart(line, use_container_width=True)
+
         except Exception:
+            # Altair unavailable or failed — fallback to simple Streamlit charts (colors not customizable here)
+            # Traffic Overview fallback (severity counts)
+            st.bar_chart(results["severity"].value_counts().loc[["HIGH", "MEDIUM", "LOW", "NORMAL"]].fillna(0))
+
+            st.markdown("### Probability Distribution")
             st.bar_chart(results["malicious_probability"].value_counts().sort_index())
 
-        st.markdown("### Attack Probability Over Sample")
-        st.line_chart(results["malicious_probability"].head(200))
+            st.markdown("### Attack Probability Over Sample")
+            st.line_chart(results["malicious_probability"].head(200))
 
+        # Detected Flows — Interactive View (left unchanged as requested)
         st.markdown("### Detected Flows — Interactive View")
         filtered = results[results["malicious_probability"] >= prob_filter].sort_values("malicious_probability", ascending=False)
         if filtered.shape[0] == 0:
@@ -670,9 +719,9 @@ if do_run and pcap_path and model is not None:
                 except Exception:
                     st.dataframe(display_df, height=400)
             else:
-                # styled dataframe: highlight attack rows
+                # styled dataframe: highlight attack rows (UNCHANGED)
                 def _highlight(row):
-                    return ["background-color: #ff4c4c; color: white; font-weight:700" if row["prediction"]=="ATTACK" else "" for _ in row]
+                    return ["background-color: #ff4c4c; color: white; font-weight:700" if row["prediction"] == "ATTACK" else "background-color: #28a745; color: white; font-weight:700" for _ in row]
                 try:
                     styled = display_df.style.apply(lambda r: _highlight(r), axis=1)
                     st.dataframe(styled, height=400)
