@@ -1,75 +1,90 @@
+"""
+Streamlit dashboard for AI Intrusion Detection System
+Updated to be robust with the new pcap extractor and the new predict.py API.
+"""
+
 import os
 import glob
 import tempfile
 import joblib
 from typing import Optional, List, Dict, Any
 import time
-from src.predict import predict_traffic
+
 import pandas as pd
+import numpy as np
 import streamlit as st
-from src.predict import align_pcap_df_to_model
-from pcap_feature_extractor import extract_features_from_pcap
 
-# ---------- Page config ----------
-st.set_page_config(page_title="AI Intrusion Detection System", page_icon="🛡️", layout="wide")
+# try imports from project
+try:
+    # expects src/predict.py with predict_traffic(...)
+    from src.predict import predict_traffic, align_pcap_df_to_model  # align may or may not exist
+    HAVE_ALIGN = True
+except Exception:
+    # best-effort: still try to import predict_traffic only
+    try:
+        from src.predict import predict_traffic
+    except Exception:
+        predict_traffic = None
+    align_pcap_df_to_model = None
+    HAVE_ALIGN = False
 
-# ---------- Paths & constants ----------
+# local extractor module (must exist)
+try:
+    from pcap_feature_extractor import extract_features_from_pcap
+except Exception:
+    extract_features_from_pcap = None
+
+# ---------- Constants ----------
 MODEL_PATH = os.path.join("models", "ids_model.pkl")
-DEFAULT_PCAP_FILENAME = "2026-02-28-traffic-analysis-exercise.pcap"
+PIPELINE_PATH = os.path.join("models", "pipeline_ids.pkl")  # optional
 SAMPLE_DIR_CANDIDATES = ["sample_pcap", "sample_pcaps", "sample_pcap/", "sample_pcaps/", "sample_pcap_files"]
 EXPECTED_FEATURES = 42
 MAX_TOP_ROWS = 500
 
+# exact FEATURE_COLUMNS used for alignment (keep in sync with extractor & model)
+FEATURE_COLUMNS = [
+    'dur', 'proto', 'service', 'state', 'spkts', 'dpkts', 'sbytes',
+    'dbytes', 'rate', 'sttl', 'dttl', 'sload', 'dload', 'sloss',
+    'dloss', 'sinpkt', 'dinpkt', 'sjit', 'djit', 'swin', 'stcpb',
+    'dtcpb', 'dwin', 'tcprtt', 'synack', 'ackdat', 'smean', 'dmean',
+    'trans_depth', 'response_body_len', 'ct_srv_src', 'ct_state_ttl',
+    'ct_dst_ltm', 'ct_src_dport_ltm', 'ct_dst_sport_ltm',
+    'ct_dst_src_ltm', 'is_ftp_login', 'ct_ftp_cmd', 'ct_flw_http_mthd',
+    'ct_src_ltm', 'ct_srv_dst', 'is_sm_ips_ports'
+]
+
 # ---------- Utilities ----------
 def clear_model_cache():
-    """Clear session keys and try to clear Streamlit caches safely (no AttributeError leak).
-
-    This function intentionally swallows errors and returns normally; callers should not assume
-    a hard crash will follow.
-    """
     for key in ["loaded_model", "model_cached", "model"]:
         if key in st.session_state:
             try:
                 del st.session_state[key]
             except Exception:
                 pass
-
-    # Defensive: only call these if they exist; wrap each call
     try:
         if hasattr(st, "cache_resource") and hasattr(st.cache_resource, "clear"):
             st.cache_resource.clear()
     except Exception:
         pass
-
     try:
         if hasattr(st, "experimental_memo") and hasattr(st.experimental_memo, "clear"):
             st.experimental_memo.clear()
     except Exception:
         pass
-
     try:
         if hasattr(st, "cache_data") and hasattr(st.cache_data, "clear"):
             st.cache_data.clear()
     except Exception:
         pass
 
-
 def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*.pcap") -> List[str]:
-    """Search candidate directories and top-level for .pcap files and return a deduplicated sorted list.
-
-    This function normalizes paths using realpath/abspath so the same file won't appear twice
-    due to differing path strings (e.g. 'sample_pcap' vs 'sample_pcap/').
-    """
     found_set = set()
     found = []
-
     def _add_path(p: str):
         ab = os.path.realpath(os.path.abspath(p))
         if ab not in found_set and os.path.isfile(ab):
             found_set.add(ab)
             found.append(ab)
-
-    # non-recursive scans for each candidate dir
     for d in dirs:
         try:
             if not d:
@@ -78,10 +93,7 @@ def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*
                 for e in glob.glob(os.path.join(d, pattern)):
                     _add_path(e)
         except Exception:
-            # ignore unreadable dirs
             continue
-
-    # recursive search (catch nested samples)
     for d in dirs:
         try:
             if os.path.isdir(d):
@@ -89,36 +101,29 @@ def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*
                     _add_path(m)
         except Exception:
             continue
-
-    # also check top-level project dir
     try:
         for t in glob.glob(pattern):
             _add_path(t)
     except Exception:
         pass
-
     found = sorted(found)
     return found
 
-
-# cache sample summary to avoid repeated heavy parsing
 @st.cache_data(ttl=300)
 def get_sample_summary(path: str) -> Dict[str, Any]:
-    """Return a small summary for a sample pcap used as a thumbnail.
-    Attempts to call extract_features_from_pcap for a quick flow preview; falls back to file metadata.
-    """
     summary: Dict[str, Any] = {}
     try:
         summary["path"] = os.path.realpath(os.path.abspath(path))
         summary["name"] = os.path.basename(path)
         summary["size_bytes"] = os.path.getsize(path)
         summary["modified_time"] = time.ctime(os.path.getmtime(path))
-        # attempt to extract features (may be heavy for many files, but cached)
         try:
-            df = extract_features_from_pcap(path)
+            if extract_features_from_pcap:
+                df = extract_features_from_pcap(path)
+            else:
+                df = pd.DataFrame()
             if isinstance(df, pd.DataFrame) and df.shape[0] > 0:
                 summary["num_flows"] = int(df.shape[0])
-                # grab a compact preview of first row (top 6 columns)
                 first_row = df.reset_index(drop=True).iloc[0]
                 preview = {}
                 for i, col in enumerate(first_row.index):
@@ -140,8 +145,42 @@ def get_sample_summary(path: str) -> Dict[str, Any]:
         summary = {"path": path, "name": os.path.basename(path), "error": str(e)}
     return summary
 
+def pad_features(df: pd.DataFrame, expected_cols: int = EXPECTED_FEATURES) -> pd.DataFrame:
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
+    cur = df.shape[1]
+    if cur < expected_cols:
+        for i in range(expected_cols - cur):
+            col_name = f"dummy_{i}"
+            if col_name not in df.columns:
+                df[col_name] = 0
+    df = df.reindex(sorted(df.columns), axis=1)
+    return df
 
-# ---------- CSS for theme & headers (UPDATED: enforce 2x2 summary grid) ----------
+def fallback_align_pcap_df_to_model(df: pd.DataFrame, model=None, train_csv: Optional[str]=None) -> pd.DataFrame:
+    """If src.predict.align_pcap_df_to_model is missing, align columns using FEATURE_COLUMNS."""
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
+    # keep only columns we know (intersection) then reindex to FEATURE_COLUMNS adding zeros
+    aligned = pd.DataFrame(0, index=range(len(df)), columns=FEATURE_COLUMNS)
+    for c in df.columns:
+        if c in aligned.columns:
+            aligned[c] = df[c].values
+    return aligned
+
+def map_severity_by_prob(prob: float) -> str:
+    if prob >= 0.9:
+        return "HIGH"
+    if prob >= 0.7:
+        return "MEDIUM"
+    if prob >= 0.4:
+        return "LOW"
+    return "NORMAL"
+
+# ---------- Page config ----------
+st.set_page_config(page_title="AI Intrusion Detection System", page_icon="🛡️", layout="wide")
+
+# ---------- CSS for theme & headers----------
 _COMMON_CSS = r"""
 <style>
 :root{
@@ -238,65 +277,20 @@ _LIGHT_CSS = """
 </style>
 """
 
-# ---------- Model loading ----------
+st.markdown(_COMMON_CSS, unsafe_allow_html=True)
+
+# ---------- Load model resource (optional) ----------
 @st.cache_resource
 def load_model(path: str = MODEL_PATH):
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     return joblib.load(path)
 
-# ---------- Prediction helpers ----------
-def safe_predict(model, X: pd.DataFrame):
-    if not isinstance(X, pd.DataFrame):
-        X = pd.DataFrame(X)
-    X_proc = X.copy().fillna(0)
-    try:
-        proba = model.predict_proba(X_proc)
-        if hasattr(proba, "ndim") and proba.ndim == 1:
-            probs = [float(p) for p in proba]
-        else:
-            try:
-                probs = [float(p) for p in proba[:, 1]]
-            except Exception:
-                probs = [float(p) for p in proba[:, 0]]
-    except Exception:
-        try:
-            preds = model.predict(X_proc)
-            probs = [1.0 if int(p) == 1 else 0.0 for p in preds]
-        except Exception:
-            probs = [0.0] * len(X_proc)
-    preds_int = [1 if (p is not None and p >= 0.5) else 0 for p in probs]
-    return probs, preds_int
-
-
-def pad_features(df: pd.DataFrame, expected_cols: int = EXPECTED_FEATURES) -> pd.DataFrame:
-    if not isinstance(df, pd.DataFrame):
-        df = pd.DataFrame(df)
-    cur = df.shape[1]
-    if cur < expected_cols:
-        for i in range(expected_cols - cur):
-            col_name = f"dummy_{i}"
-            if col_name not in df.columns:
-                df[col_name] = 0
-    df = df.reindex(sorted(df.columns), axis=1)
-    return df
-
-
-def map_severity_by_prob(prob: float) -> str:
-    if prob >= 0.9:
-        return "HIGH"
-    if prob >= 0.7:
-        return "MEDIUM"
-    if prob >= 0.4:
-        return "LOW"
-    return "NORMAL"
-
-# ---------- Sidebar: theme + controls ----------
+# ---------- Sidebar controls ----------
 with st.sidebar:
     st.title("⚙️ Controls")
     ui_theme = st.selectbox("UI Theme", ["Soft-Dark (recommended)", "Light (high-contrast)"], index=0)
     background_style = st.selectbox("Background", ["Professional gradient (recommended)", "Plain"], index=0)
-
     st.markdown("---")
     label_preset = st.selectbox("Label Preset",
                                 ["Binary (BENIGN / MALICIOUS)", "Severity (NORMAL/LOW/MEDIUM/HIGH)", "Custom labels"],
@@ -321,50 +315,17 @@ with st.sidebar:
             st.sidebar.success("Cache cleared (attempted).")
         except Exception as e:
             st.sidebar.error(f"Failed to clear cache: {e}")
-
-        rerun_attempted = False
         try:
             if hasattr(st, "experimental_rerun"):
-                try:
-                    st.experimental_rerun()
-                    rerun_attempted = True
-                except Exception:
-                    rerun_attempted = False
+                st.experimental_rerun()
         except Exception:
-            rerun_attempted = False
-
-        if not rerun_attempted:
             try:
                 if hasattr(st, "rerun"):
-                    try:
-                        st.rerun()
-                        rerun_attempted = True
-                    except Exception:
-                        rerun_attempted = False
+                    st.rerun()
             except Exception:
-                rerun_attempted = False
+                st.sidebar.info("Could not programmatically rerun the app. Reload the browser page as fallback.")
 
-        if not rerun_attempted:
-            st.sidebar.info("Could not programmatically rerun the app. Reloading browser page as fallback...")
-            st.markdown("<script>window.location.reload();</script>", unsafe_allow_html=True)
-
-# ---------- Inject CSS & theme wrapper ----------
-st.markdown(_COMMON_CSS, unsafe_allow_html=True)
-if ui_theme.startswith("Soft"):
-    st.markdown('<div class="soft-dark">', unsafe_allow_html=True)
-    st.markdown(_DARK_CSS, unsafe_allow_html=True)
-else:
-    st.markdown('<div class="light">', unsafe_allow_html=True)
-    st.markdown(_LIGHT_CSS, unsafe_allow_html=True)
-
-if background_style.startswith("Professional"):
-    st.markdown("""
-    <style>
-    body > div[role="application"] { background-image: radial-gradient(circle at 10% 10%, rgba(11,118,255,0.03), transparent 10%), linear-gradient(180deg, rgba(3,10,20,0.6), rgba(3,10,20,0.85)); background-attachment: fixed; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ---------- Load model ----------
+# ---------- Load model (best-effort) ----------
 try:
     model = load_model()
 except FileNotFoundError:
@@ -374,7 +335,7 @@ except Exception as e:
     st.sidebar.error(f"Error loading model: {e}")
     model = None
 
-# ---------- Try to import AgGrid (optional) ----------
+# optional AG Grid
 try:
     from st_aggrid import AgGrid, GridOptionsBuilder
     aggrid_available = True
@@ -383,20 +344,15 @@ except Exception:
 
 # ---------- Main UI ----------
 st.markdown("# 🛡️ AI-Powered Intrusion Detection System")
-st.markdown("Upload a PCAP, choose label scheme and run detection. The dashboard focuses on readable, accessible statistics.")
+st.markdown("Upload a PCAP, choose label scheme and run detection. Use controls on the left.")
 
 left, right = st.columns([2, 1])
 
 with left:
-    st.markdown('<div class="section-header"><h3>1) PCAP Source</h3></div>', unsafe_allow_html=True)
-
+    st.markdown("### 1) PCAP Source")
     sample_list = find_sample_pcaps()
-
     source_mode = st.radio("Choose PCAP source:", ["Use default sample (recommended)", "Upload custom PCAP"], index=0)
-
     pcap_path = None
-    default_selected = None
-
     if source_mode.startswith("Use default"):
         if sample_list:
             filenames = [os.path.basename(p) for p in sample_list]
@@ -406,8 +362,7 @@ with left:
             sel = st.selectbox("Select default sample:", options=filenames, index=selected_idx)
             sel_idx = filenames.index(sel)
             st.session_state["selected_default_idx"] = sel_idx
-            default_selected = sample_list[sel_idx]
-            pcap_path = default_selected
+            pcap_path = sample_list[sel_idx]
             st.success(f"Using default sample: {os.path.basename(pcap_path)}")
             st.write(pcap_path)
         else:
@@ -420,7 +375,7 @@ with left:
                 tmp.close()
                 pcap_path = tmp.name
     else:
-        uploaded = st.file_uploader("Upload PCAP (.pcap)", type=["pcap"])  # shown only in upload mode
+        uploaded = st.file_uploader("Upload PCAP (.pcap)", type=["pcap"])
         if uploaded is not None:
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pcap")
             tmp.write(uploaded.read())
@@ -432,31 +387,24 @@ with left:
 
     st.markdown("**PCAP path:**")
     st.write(pcap_path if pcap_path else "No PCAP selected")
-
-    # quick hint for keyboard shortcut
     st.markdown("Press **R** to re-run inference (keyboard shortcut)")
 
 with right:
-    st.markdown('<div class="section-header"><h3>Samples</h3></div>', unsafe_allow_html=True)
-
+    st.markdown("### Samples")
     if sample_list:
-        # Display a compact scrollable list of sample cards
         for sp in sample_list:
             s = get_sample_summary(sp)
-            # make the currently selected sample visually distinct
             highlight = (pcap_path == s.get("path"))
             card_html = f"""
-            <div class='sample-card' style='border: 1px solid {'#0b76ff' if highlight else 'rgba(255,255,255,0.03)'};'>
+            <div style='border-radius:8px; padding:8px; background: rgba(255,255,255,0.01); border:1px solid {"#0b76ff" if highlight else "rgba(255,255,255,0.03)"}; margin-bottom:8px;'>
               <div style='display:flex; justify-content:space-between; align-items:center;'>
                 <div style='font-weight:700'>{s.get('name')}</div>
-                <div class='meta'>{s.get('num_flows', '?')} flows</div>
+                <div style='font-size:0.82rem; color:#9fb4d8'>{s.get('num_flows', '?')} flows</div>
               </div>
-              <div style='font-size:0.85rem; margin-top:6px;'>Size: {s.get('size_bytes', '?')} bytes<br>Modified: {s.get('modified_time', '-')}
-              </div>
+              <div style='font-size:0.85rem; margin-top:6px;'>Size: {s.get('size_bytes', '?')} bytes<br>Modified: {s.get('modified_time', '-')}</div>
             </div>
             """
             st.markdown(card_html, unsafe_allow_html=True)
-            # show small preview table for first flow if available
             if s.get("preview"):
                 try:
                     preview_df = pd.DataFrame([s.get("preview")])
@@ -468,15 +416,9 @@ with right:
     else:
         st.info("No sample files found. Place .pcap files in one of the sample directories or upload a custom PCAP.")
 
-    st.markdown('<div class="section-header"><h3>Model & Quick Info</h3></div>', unsafe_allow_html=True)
-    model_info_html = f"""
-    <div class="summary-card" style="padding:12px">
-      <div class="title">Model Path</div>
-      <div class="value" title="{MODEL_PATH}">{os.path.basename(MODEL_PATH)}</div>
-      <div class="sub">Threshold: {threshold:.2f}</div>
-    </div>
-    """
-    st.markdown(model_info_html, unsafe_allow_html=True)
+    st.markdown("### Model & Quick Info")
+    st.markdown(f"**Model Path:** `{MODEL_PATH}`")
+    st.markdown(f"**Threshold:** {threshold:.2f}")
 
 # ---------- Run logic ----------
 do_run = (run_on_upload and pcap_path is not None) or st.button("Extract & Predict ▶️")
@@ -484,36 +426,93 @@ do_run = (run_on_upload and pcap_path is not None) or st.button("Extract & Predi
 if not pcap_path:
     st.info("No PCAP selected — use the default sample or upload a custom file to run detection.")
 
-# ---------- Run: extract, predict, visuals ----------
 if do_run and pcap_path and model is not None:
     with st.spinner("Extracting features from PCAP... ⛏️"):
         try:
-            num_flows = st.sidebar.number_input("Max flows to extract from PCAP", min_value=10, max_value=500, value=50, step=10)
-            raw_df = extract_features_from_pcap(pcap_path, num_packets=num_flows)
+            num_flows = int(st.sidebar.number_input("Max flows to extract from PCAP", min_value=10, max_value=500, value=50, step=10))
+            if extract_features_from_pcap is None:
+                st.error("PCAP feature extractor not available (pcap_feature_extractor.py not importable).")
+                st.stop()
+            raw_df = extract_features_from_pcap(pcap_path)
             if raw_df is None or raw_df.shape[0] == 0:
                 st.warning("No flows parsed from PCAP. Check the file content.")
                 st.stop()
+            # cap the number of flows right here
+            if raw_df.shape[0] > num_flows:
+                raw_df = raw_df.head(num_flows).reset_index(drop=True)
         except Exception as e:
             st.exception(f"Feature extraction failed: {e}")
             st.stop()
 
-    # Align extracted PCAP features to the model's expected feature names (bridge adapter)
-    aligned_df = align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
+    # Align extracted PCAP features to the model's expected feature names
+    try:
+        if HAVE_ALIGN and align_pcap_df_to_model:
+            aligned_df = align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
+        else:
+            aligned_df = fallback_align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
+    except Exception as e:
+        st.warning(f"Failed to align PCAP features with model automatically: {e}. Applying fallback alignment.")
+        aligned_df = fallback_align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
 
     # pad / reorder columns as before
     df = pad_features(aligned_df, EXPECTED_FEATURES)
 
+    # run inference using project's predict function if available, otherwise attempt to use a local model
     with st.spinner("Running model inference... 🤖"):
         try:
-            results_list = predict_traffic(df, model_path=MODEL_PATH, pipeline_path="models/pipeline_ids.pkl", threshold=threshold)
-            probs = [r["malicious_probability"] for r in results_list]
-            preds_int = [1 if r["prediction"] != "BENIGN" and r["malicious_probability"] is not None else 0 for r in results_list]
+            if predict_traffic is None:
+                raise RuntimeError("predict_traffic not available from src.predict")
+            # project predict_traffic often expects dataframe aligned to FEATURE_COLUMNS
+            results_list = predict_traffic(df, threshold=threshold) if callable(predict_traffic) else []
+            # results_list expected to be list of dicts with keys like 'attack_probability' / 'malicious_probability' and 'prediction'
+            probs = []
+            preds_int = []
+            for r in results_list:
+                # robust extraction of probability
+                p = None
+                if isinstance(r, dict):
+                    p = r.get("attack_probability") or r.get("malicious_probability") or r.get("malicious_prob") or r.get("mal_prob")
+                try:
+                    p = float(p) if p is not None else 0.0
+                except Exception:
+                    p = 0.0
+                probs.append(p)
+                pred_label = None
+                if isinstance(r, dict):
+                    pred_label = r.get("prediction") or r.get("label")
+                pred_label = str(pred_label).upper() if pred_label is not None else ""
+                if pred_label in ("ATTACK", "MALICIOUS", "1", "TRUE"):
+                    preds_int.append(1)
+                else:
+                    preds_int.append(0)
         except Exception as e:
             st.error(f"Inference failed: {e}")
-            probs = [0.0] * len(df)
-            preds_int = [0] * len(df)
+            # best-effort fallback: try to load model directly if possible
+            try:
+                mdl = load_model()
+                # use probabilities if available
+                X_proc = df.reindex(columns=FEATURE_COLUMNS, fill_value=0)
+                if hasattr(mdl, "predict_proba"):
+                    probs_arr = mdl.predict_proba(X_proc)
+                    # try to pick correct column
+                    if probs_arr.ndim == 1:
+                        probs = [float(x) for x in probs_arr]
+                    else:
+                        try:
+                            probs = [float(x) for x in probs_arr[:, 1]]
+                        except Exception:
+                            probs = [float(x) for x in probs_arr[:, -1]]
+                else:
+                    preds = mdl.predict(X_proc)
+                    probs = [1.0 if int(p) == 1 else 0.0 for p in preds]
+                preds_int = [1 if p >= threshold else 0 for p in probs]
+            except Exception as e2:
+                st.error(f"Fallback prediction failed: {e2}")
+                probs = [0.0] * len(df)
+                preds_int = [0] * len(df)
 
     results = df.copy().reset_index(drop=True)
+    # Try to normalize to fields used later
     results["malicious_probability"] = [float(p) for p in probs]
     results["prediction_int"] = [int(x) for x in preds_int]
     results["is_suspicious"] = results["malicious_probability"] >= threshold
@@ -547,30 +546,23 @@ if do_run and pcap_path and model is not None:
         threat = "HIGH"
         color_emoji = "🔴"
 
-    # ---- KPI cards ----
-    st.markdown('<div class="section-header"><h3>Summary</h3></div>', unsafe_allow_html=True)
-    st.markdown("<div class='card-grid'>", unsafe_allow_html=True)
+    # KPI cards
+    st.markdown("### Summary")
     kpis = [
         ("Total Flows", total, "Total parsed flows"),
         ("Benign / Normal", normals, "Non-alert flows"),
         ("Suspicious / Alerts", attacks, "Detected suspicious flows"),
         ("Threat Level", f"{threat} {color_emoji}", f"{attack_ratio*100:.2f}% of flows"),
     ]
-    for title, value, sub in kpis:
-        st.markdown(
-            f"""
-            <div class='summary-card kpi'>
-              <div class='title'>{title}</div>
-              <div class='value'>{value}</div>
-              <div class='sub'>{sub}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
+    cols = st.columns(len(kpis))
+    for col, (title, value, sub) in zip(cols, kpis):
+        with col:
+            st.markdown(f"**{title}**")
+            st.markdown(f"<div style='font-size:22px; font-weight:800'>{value}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='color: #8aa0c8'>{sub}</div>", unsafe_allow_html=True)
 
-    # Charts & Table
-    st.markdown('<div class="section-header"><h3>Traffic Overview</h3></div>', unsafe_allow_html=True)
+    # charts & tables
+    st.markdown("### Traffic Overview")
     try:
         import altair as alt
         label_counts = results.groupby("label").size().reset_index(name="count").sort_values("count", ascending=False)
@@ -584,7 +576,7 @@ if do_run and pcap_path and model is not None:
     except Exception:
         st.bar_chart(results["label"].value_counts())
 
-    st.markdown('<div class="section-header"><h3>Probability Distribution</h3></div>', unsafe_allow_html=True)
+    st.markdown("### Probability Distribution")
     try:
         import altair as alt
         hist = (
@@ -601,10 +593,10 @@ if do_run and pcap_path and model is not None:
     except Exception:
         st.bar_chart(results["malicious_probability"].value_counts().sort_index())
 
-    st.markdown('<div class="section-header"><h3>Attack Probability Over Sample</h3></div>', unsafe_allow_html=True)
+    st.markdown("### Attack Probability Over Sample")
     st.line_chart(results["malicious_probability"].head(200))
 
-    st.markdown('<div class="section-header"><h3>Detected Flows — Interactive View</h3></div>', unsafe_allow_html=True)
+    st.markdown("### Detected Flows — Interactive View")
     filtered = results[results["malicious_probability"] >= prob_filter].sort_values("malicious_probability", ascending=False)
     if filtered.shape[0] == 0:
         st.info("No flows match the current probability filter. Lower the filter or choose a different PCAP.")
@@ -614,25 +606,24 @@ if do_run and pcap_path and model is not None:
         display_cols = [c for c in display_cols if c in top.columns]
         display_df = top[display_cols]
 
-        # Use AgGrid if available for better interactivity
         if aggrid_available:
             try:
                 gb = GridOptionsBuilder.from_dataframe(display_df)
                 gb.configure_selection(selection_mode='single', use_checkbox=True)
                 grid_options = gb.build()
-                grid_response = AgGrid(display_df, gridOptions=grid_options, height=350)
+                AgGrid(display_df, gridOptions=grid_options, height=350)
             except Exception:
                 st.dataframe(display_df, height=400)
         else:
             st.dataframe(display_df, height=400)
 
-    st.markdown('<div class="section-header"><h3>Inspect a single flow / JSON view</h3></div>', unsafe_allow_html=True)
+    st.markdown("### Inspect a single flow / JSON view")
     idx = st.number_input("Row index (0-based)", 0, max(0, total - 1), 0)
     if total > 0:
         row = results.iloc[int(idx)].to_dict()
         st.json(row)
 
-    st.markdown('<div class="section-header"><h3>Export results</h3></div>', unsafe_allow_html=True)
+    st.markdown("### Export results")
     csv_bytes = results.to_csv(index=False).encode("utf-8")
     json_str = results.to_json(orient="records", indent=2)
     st.download_button("📥 Download CSV", csv_bytes, file_name="ai_ids_results.csv", mime="text/csv")
@@ -651,21 +642,14 @@ if do_run and pcap_path and model is not None:
     st.success("Detection completed ✅")
 
 else:
-    st.markdown('<div class="section-header"><h3>Welcome</h3></div>', unsafe_allow_html=True)
-    st.markdown("<div class='summary-card' style='padding:14px'>This dashboard extracts features from PCAPs and runs a trained ML model to detect suspicious activity. Use the controls on the left to configure labels, thresholds and run detection.</div>", unsafe_allow_html=True)
-
-# close theme wrapper
-if ui_theme.startswith("Soft"):
-    st.markdown('</div>', unsafe_allow_html=True)
-else:
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("### Welcome")
+    st.markdown("This dashboard extracts features from PCAPs and runs a trained ML model to detect suspicious activity. Use the controls on the left to configure labels, thresholds and run detection.")
 
 # ---------- Keyboard shortcut (R to rerun) ----------
 st.markdown("""
 <script>
 window.addEventListener('keydown', function(e) {
   if (e.key === 'r' || e.key === 'R') {
-    // find button containing the text 'Extract & Predict'
     const buttons = document.querySelectorAll('button');
     for (let i=0;i<buttons.length;i++){
       const b = buttons[i];
@@ -680,4 +664,4 @@ window.addEventListener('keydown', function(e) {
 """, unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown("Made with ❤️ by the AI-IDS team")
+st.markdown("Made with ❤️ by the Feras team")
