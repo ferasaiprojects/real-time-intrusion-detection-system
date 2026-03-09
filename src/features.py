@@ -1,18 +1,15 @@
 # src/features.py
 """
-Feature extraction from Zeek logs
+Feature reference for UNSW-NB15 model
 """
 
-def extract_features(df):
-    """
-    Convert Zeek DataFrame to ML-ready features
-    """
-    features = pd.DataFrame()
-    if df.empty:
-        return features
-    
-    # Example features
-    features['duration'] = df.get('duration', 0)
-    features['orig_bytes'] = df.get('orig_bytes', 0)
-    features['resp_bytes'] = df.get('resp_bytes', 0)
-    return features
+FEATURE_COLUMNS = [
+    'dur', 'proto', 'service', 'state', 'spkts', 'dpkts', 'sbytes',
+    'dbytes', 'rate', 'sttl', 'dttl', 'sload', 'dload', 'sloss',
+    'dloss', 'sinpkt', 'dinpkt', 'sjit', 'djit', 'swin', 'stcpb',
+    'dtcpb', 'dwin', 'tcprtt', 'synack', 'ackdat', 'smean', 'dmean',
+    'trans_depth', 'response_body_len', 'ct_srv_src', 'ct_state_ttl',
+    'ct_dst_ltm', 'ct_src_dport_ltm', 'ct_dst_sport_ltm',
+    'ct_dst_src_ltm', 'is_ftp_login', 'ct_ftp_cmd', 'ct_flw_http_mthd',
+    'ct_src_ltm', 'ct_srv_dst', 'is_sm_ips_ports'
+]
