@@ -69,8 +69,8 @@ Follow these steps to set up the project locally.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Sultann1111/RealTime-IDS-Project.git
-cd RealTime-IDS-Project
+git clone https://github.com/ferasaiprojects/real-time-intrusion-detection-system.git
+cd real-time-intrusion-detection-system
 ```
 
 ### 2. Create and Activate a Virtual Environment
@@ -97,6 +97,10 @@ pip install -r requirements.txt
 
 ---
 
+## Local Simulations
+```bash
+python simulate_ids.py --pcap sample_pcap/2026-02-28-traffic-analysis-exercise.pcap --n 50 --threshold 0.6
+```
 ## ▶️ Running the Dashboard
 
 Start the Streamlit dashboard using:
