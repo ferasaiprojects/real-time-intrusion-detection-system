@@ -4,35 +4,34 @@ import tempfile
 import joblib
 from typing import Optional, List, Dict, Any
 import time
+import sys
+import logging
 
 import pandas as pd
 import numpy as np
 import streamlit as st
 
-# try imports from project
+logging.basicConfig(level=logging.INFO)
+
+# ---------- Project imports (surface failures visibly) ----------
+# predict_traffic expected in src.predict
 try:
-    # expects src/predict.py with predict_traffic(...)
-    from src.predict import predict_traffic, align_pcap_df_to_model  # align may or may not exist
-    HAVE_ALIGN = True
-except Exception:
-    # best-effort: still try to import predict_traffic only
-    try:
-        from src.predict import predict_traffic
-    except Exception:
-        predict_traffic = None
-    align_pcap_df_to_model = None
-    HAVE_ALIGN = False
+    from src.predict import predict_traffic
+except Exception as e:
+    st.sidebar.warning(f"Could not import src.predict.predict_traffic: {e}")
+    predict_traffic = None
 
 # local extractor module (must exist)
 try:
     from pcap_feature_extractor import extract_features_from_pcap
-except Exception:
+except Exception as e:
+    st.sidebar.warning(f"pcap_feature_extractor import failed: {e}")
     extract_features_from_pcap = None
 
 # ---------- Constants ----------
 MODEL_PATH = os.path.join("models", "ids_model.pkl")
 PIPELINE_PATH = os.path.join("models", "pipeline_ids.pkl")  # optional
-SAMPLE_DIR_CANDIDATES = ["sample_pcap", "sample_pcaps", "sample_pcap/", "sample_pcaps/", "sample_pcap_files"]
+SAMPLE_DIR_CANDIDATES = ["sample_pcap", "sample_pcaps", "sample_pcap/", "sample_pcaps/", "sample_pcap_files", "sample_pcaps/"]
 EXPECTED_FEATURES = 42
 MAX_TOP_ROWS = 500
 
@@ -72,6 +71,9 @@ def clear_model_cache():
         pass
 
 def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*.pcap") -> List[str]:
+    """
+    Search for sample pcap files inside common sample directories or current dir.
+    """
     found_set = set()
     found = []
     def _add_path(p: str):
@@ -105,6 +107,10 @@ def find_sample_pcaps(dirs: List[str] = SAMPLE_DIR_CANDIDATES, pattern: str = "*
 
 @st.cache_data(ttl=300)
 def get_sample_summary(path: str) -> Dict[str, Any]:
+    """
+    Return basic file metadata plus a tiny preview from feature extractor (first row).
+    This function tolerates extractor failures and malformed values.
+    """
     summary: Dict[str, Any] = {}
     try:
         summary["path"] = os.path.realpath(os.path.abspath(path))
@@ -113,6 +119,7 @@ def get_sample_summary(path: str) -> Dict[str, Any]:
         summary["modified_time"] = time.ctime(os.path.getmtime(path))
         try:
             if extract_features_from_pcap:
+                # keep preview fast by limiting extraction via extractor (extractor returns full df)
                 df = extract_features_from_pcap(path)
             else:
                 df = pd.DataFrame()
@@ -125,7 +132,17 @@ def get_sample_summary(path: str) -> Dict[str, Any]:
                         break
                     val = first_row[col]
                     try:
-                        preview[col] = float(val) if pd.api.types.is_numeric_dtype(type(val)) else str(val)
+                        # safer numeric detection
+                        if val is None:
+                            preview[col] = None
+                        elif isinstance(val, (int, float, np.number)):
+                            preview[col] = float(val)
+                        else:
+                            # try to coerce strings containing numbers
+                            try:
+                                preview[col] = float(str(val))
+                            except Exception:
+                                preview[col] = str(val)
                     except Exception:
                         preview[col] = str(val)
                 summary["preview"] = preview
@@ -148,17 +165,9 @@ def pad_features(df: pd.DataFrame, expected_cols: int = EXPECTED_FEATURES) -> pd
             col_name = f"dummy_{i}"
             if col_name not in df.columns:
                 df[col_name] = 0
+    # sort columns for deterministic order (model expects specific order)
     df = df.reindex(sorted(df.columns), axis=1)
     return df
-
-def fallback_align_pcap_df_to_model(df: pd.DataFrame, model=None, train_csv: Optional[str]=None) -> pd.DataFrame:
-    if not isinstance(df, pd.DataFrame):
-        df = pd.DataFrame(df)
-    aligned = pd.DataFrame(0, index=range(len(df)), columns=FEATURE_COLUMNS)
-    for c in df.columns:
-        if c in aligned.columns:
-            aligned[c] = df[c].values
-    return aligned
 
 def map_severity_by_prob(prob: float) -> str:
     if prob >= 0.9:
@@ -204,40 +213,12 @@ _COMMON_CSS = r"""
 .page-title .headline { font-size: 1.65rem; font-weight:900; line-height:1.05; }
 .page-title .sub { opacity:0.85; color:var(--muted-dark); font-size:0.98rem; }
 
-/* Generic section card */
-.section-card {
-  border-radius:10px;
-  padding:12px;
-  margin-bottom:12px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  box-shadow: var(--shadow-soft);
-}
-
-/* Section header within a card */
-.section-header-card {
-  display:flex; align-items:center; gap:12px;
-  padding:8px 10px; border-radius:8px; border-left:6px solid var(--accent1);
-  background: rgba(255,255,255,0.01); margin-bottom:8px;
-}
+.section-card { border-radius:10px; padding:12px; margin-bottom:12px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-soft); }
+.section-header-card { display:flex; align-items:center; gap:12px; padding:8px 10px; border-radius:8px; border-left:6px solid var(--accent1); background: rgba(255,255,255,0.01); margin-bottom:8px; }
 .section-header-card h3 { margin:0; font-size:1.05rem; }
 
-/* Grid */
 .card-grid { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 14px; margin-bottom: 14px; align-items: stretch; }
-
-/* KPI card */
-.summary-card {
-  border-radius: 10px;
-  padding: 12px;
-  min-height: 84px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 6px;
-  background: var(--card-bg);
-  border: 1px solid rgba(255,255,255,0.03);
-  box-shadow: var(--shadow-subtle);
-}
+.summary-card { border-radius: 10px; padding: 12px; min-height: 84px; display: flex; flex-direction: column; justify-content: center; gap: 6px; background: var(--card-bg); border: 1px solid rgba(255,255,255,0.03); box-shadow: var(--shadow-subtle); }
 .summary-card .title { font-size: 0.90rem; font-weight: 700; color: var(--muted-light); }
 .summary-card .value { font-size: 1.6rem; font-weight: 800; color: var(--accent1); }
 .summary-card.kpi { border-left: 6px solid var(--accent2); padding-left: 12px; }
@@ -273,9 +254,20 @@ _LIGHT_CSS = """
 </style>
 """
 
-# ---------- Sidebar controls ----------
+# ---------- Sidebar controls & debug ----------
 with st.sidebar:
     st.title("⚙️ Controls")
+    # quick environment debug so cloud startup issues are obvious
+    try:
+        st.markdown("**Debug — startup info**")
+        st.text(f"Python: {sys.version.split()[0]}")
+        st.text(f"CWD: {os.getcwd()}")
+        top_files = sorted([p for p in os.listdir(".") if not p.startswith(".")])[:30]
+        st.text("Files: " + ", ".join(top_files))
+        st.markdown("---")
+    except Exception:
+        pass
+
     ui_theme = st.selectbox("UI Theme", ["Soft-Dark (recommended)", "Light (high-contrast)"], index=0)
     background_style = st.selectbox("Background", ["Professional gradient (recommended)", "Plain"], index=0)
 
@@ -294,7 +286,7 @@ with st.sidebar:
     top_n = int(st.number_input("Top N suspicious flows", min_value=5, max_value=MAX_TOP_ROWS, value=50))
     show_raw = st.checkbox("Show raw features (large)", value=False)
     highlight_suspicious = st.checkbox("Highlight suspicious rows", value=True)
-    run_on_upload = st.checkbox("Auto-run detection on upload", value=True)
+    run_on_upload = st.checkbox("Auto-run detection on upload", value=False)  # safer default for cloud
 
     st.markdown("---")
     if st.button("Clear cached model"):
@@ -312,7 +304,6 @@ with st.sidebar:
                     st.rerun()
             except Exception:
                 st.sidebar.info("Could not programmatically rerun the app. Reload the browser page as fallback.")
-
 
 # ---------- Inject CSS & theme wrapper ----------
 st.markdown(_COMMON_CSS, unsafe_allow_html=True)
@@ -369,13 +360,36 @@ try:
 except Exception:
     aggrid_available = False
 
-# ---------- Page title ----------
+# ---------- Small 'alive' banner ----------
 st.markdown(
     "<div class='page-title'><div><div class='headline'>🛡️ AI-Powered Intrusion Detection System</div>"
     "<div class='sub'>Streamlit · PCAP → features → model</div></div></div>",
     unsafe_allow_html=True
 )
+st.markdown("<small style='opacity:0.8'>Startup OK — debug info shown in the sidebar</small>", unsafe_allow_html=True)
 st.markdown("Upload a PCAP, choose label scheme and run detection. Use controls on the left.")
+
+# ---------- Cached extractor wrapper (reduces repeated heavy work) ----------
+@st.cache_data(ttl=600)
+def cached_extract_for_display(pcap_path: str, max_flows: int = 200) -> pd.DataFrame:
+    """
+    Wrapper around extract_features_from_pcap to cache results and limit rows.
+    """
+    if extract_features_from_pcap is None:
+        return pd.DataFrame()
+    try:
+        df = extract_features_from_pcap(pcap_path)
+    except Exception as e:
+        st.sidebar.error(f"Extraction error: {e}")
+        return pd.DataFrame()
+    if df is None:
+        return pd.DataFrame()
+    try:
+        if df.shape[0] > max_flows:
+            df = df.head(max_flows).reset_index(drop=True)
+    except Exception:
+        pass
+    return df
 
 # ---------- Layout ----------
 left, right = st.columns([2, 1])
@@ -471,36 +485,35 @@ if not pcap_path:
     st.info("No PCAP selected — use the default sample or upload a custom file to run detection.")
 
 if do_run and pcap_path and model is not None:
+    # maximum flows configured in sidebar
+    num_flows = int(st.sidebar.number_input("Max flows to extract from PCAP", min_value=10, max_value=500, value=50, step=10))
+
+    # Extraction (cached + limited)
     with st.spinner("Extracting features from PCAP... ⛏️"):
         try:
-            num_flows = int(st.sidebar.number_input("Max flows to extract from PCAP", min_value=10, max_value=500, value=50, step=10))
             if extract_features_from_pcap is None:
                 st.error("PCAP feature extractor not available (pcap_feature_extractor.py not importable).")
                 st.stop()
-            raw_df = extract_features_from_pcap(pcap_path)
+            # Use cached wrapper which returns at most a limited number of rows (for cloud)
+            raw_df = cached_extract_for_display(pcap_path, max_flows=num_flows)
             if raw_df is None or getattr(raw_df, "shape", (0, 0))[0] == 0:
-                st.warning("No flows parsed from PCAP. Check the file content.")
+                st.warning("No flows parsed from PCAP. Check the file content or try a smaller sample PCAP.")
                 st.stop()
-            if raw_df.shape[0] > num_flows:
-                raw_df = raw_df.head(num_flows).reset_index(drop=True)
         except Exception as e:
             st.exception(f"Feature extraction failed: {e}")
             st.stop()
 
+    # alignment removed by design — pad the extracted df directly for model compatibility
     try:
-        if HAVE_ALIGN and align_pcap_df_to_model:
-            aligned_df = align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
-        else:
-            aligned_df = fallback_align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
+        df = pad_features(raw_df, EXPECTED_FEATURES)
     except Exception as e:
-        st.warning(f"Failed to align PCAP features with model automatically: {e}. Applying fallback alignment.")
-        aligned_df = fallback_align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
-
-    df = pad_features(aligned_df, EXPECTED_FEATURES)
+        st.error(f"Failed to prepare features for model: {e}")
+        st.stop()
 
     with st.spinner("Running model inference... 🤖"):
         try:
             if predict_traffic is None:
+                # fallback: try to use loaded model directly
                 raise RuntimeError("predict_traffic not available from src.predict")
             results_list = predict_traffic(df, threshold=threshold) if callable(predict_traffic) else []
             probs = []
@@ -525,14 +538,14 @@ if do_run and pcap_path and model is not None:
                 else:
                     preds_int.append(0)
                     preds_label.append("NORMAL")
-        except Exception as e:
-            st.error(f"Inference failed: {e}")
+        except Exception:
+            # Fallback: use loaded model directly via predict_proba/predict
             try:
                 mdl = load_model()
                 X_proc = df.reindex(columns=FEATURE_COLUMNS, fill_value=0)
                 if hasattr(mdl, "predict_proba"):
                     probs_arr = mdl.predict_proba(X_proc)
-                    if probs_arr.ndim == 1:
+                    if isinstance(probs_arr, (list, tuple, np.ndarray)) and np.asarray(probs_arr).ndim == 1:
                         probs = [float(x) for x in probs_arr]
                     else:
                         try:
@@ -550,15 +563,15 @@ if do_run and pcap_path and model is not None:
                 preds_int = [0] * len(df)
                 preds_label = ["NORMAL"] * len(df)
 
+    # Build results DataFrame
     results = df.copy().reset_index(drop=True)
-    # normalized/compat columns
     results["malicious_probability"] = [float(p) for p in probs]
     results["attack_probability"] = results["malicious_probability"]
     results["prediction_int"] = [int(x) for x in preds_int]
     results["prediction"] = preds_label
     results["is_suspicious"] = results["malicious_probability"] >= threshold
 
-    # label column for legacy usage
+    # Labels
     if label_preset == "Binary (BENIGN / MALICIOUS)":
         lbl0, lbl1 = "BENIGN", "MALICIOUS"
         results["label"] = results["prediction_int"].map({0: lbl0, 1: lbl1})
@@ -569,8 +582,6 @@ if do_run and pcap_path and model is not None:
         lbl1 = custom_label_1 if custom_label_1 else "MALICIOUS"
         results["label"] = results["prediction_int"].map({0: lbl0, 1: lbl1})
 
-    # ---- NEW: canonical severity column used for chart color mapping ----
-    # Always derive severity from probability to ensure consistent coloring:
     results["severity"] = results["malicious_probability"].apply(map_severity_by_prob)
 
     total = len(results)
@@ -578,16 +589,16 @@ if do_run and pcap_path and model is not None:
     normals = total - attacks
     attack_ratio = attacks / total if total else 0.0
 
-    # Threat level text + color (reuse your compact script logic)
+    # Threat level
     if attack_ratio < 0.1:
         threat_level = "LOW"
-        threat_color = "#4caf50"  # green
+        threat_color = "#4caf50"
     elif attack_ratio < 0.3:
         threat_level = "MEDIUM"
-        threat_color = "#ff9800"  # orange
+        threat_color = "#ff9800"
     else:
         threat_level = "HIGH"
-        threat_color = "#ff4c4c"  # red
+        threat_color = "#ff4c4c"
 
     def render_threat_card():
         html = f"""
@@ -600,7 +611,7 @@ if do_run and pcap_path and model is not None:
 
     section_card("Threat Level", render_threat_card)
 
-    # ---- KPI cards ----
+    # KPI
     def render_summary():
         st.markdown("<div class='card-grid'>", unsafe_allow_html=True)
         kpis = [
@@ -615,26 +626,18 @@ if do_run and pcap_path and model is not None:
 
     section_card("Summary", render_summary)
 
-    # -------------------------
-    # Charts & Table (updated for colored charts based on severity)
-    # -------------------------
+    # Charts & Table
     def render_charts_and_table():
         st.markdown("### Traffic Overview")
-
-        # canonical color map for severity
         severity_color_map = {
-            "HIGH": "#ff4c4c",    # red
-            "MEDIUM": "#ff9800",  # orange
-            "LOW": "#4caf50",     # green
-            "NORMAL": "#6ec6ff"   # soft blue for normal/ok
+            "HIGH": "#ff4c4c",
+            "MEDIUM": "#ff9800",
+            "LOW": "#4caf50",
+            "NORMAL": "#6ec6ff"
         }
-        # Attempt Altair charts with colors; fallback to simple charts if Altair not available
         try:
             import altair as alt
-
-            # 1) Traffic Overview: group by severity (consistent coloring)
             counts = results.groupby("severity").size().reset_index(name="count")
-            # ensure deterministic ordering
             severity_order = ["HIGH", "MEDIUM", "LOW", "NORMAL"]
             counts["severity"] = pd.Categorical(counts["severity"], categories=severity_order, ordered=True)
             counts = counts.sort_values("severity")
@@ -653,8 +656,6 @@ if do_run and pcap_path and model is not None:
             st.altair_chart(bar, use_container_width=True)
 
             st.markdown("### Probability Distribution")
-            # 2) Probability Distribution: stacked histogram by severity (bins colored by severity)
-            # create a severity column already present; use it to color/stack bins
             hist = (
                 alt.Chart(results)
                 .mark_bar()
@@ -669,12 +670,8 @@ if do_run and pcap_path and model is not None:
             st.altair_chart(hist, use_container_width=True)
 
             st.markdown("### Attack Probability Over Sample")
-            # 3) Attack Probability Over Sample: use row order (sample index) and color by severity
-            # create a row index column for plotting
             plot_df = results.reset_index().rename(columns={"index": "row_index"})
-            # ensure severity is categorical with our ordering for consistent legend
             plot_df["severity"] = pd.Categorical(plot_df["severity"], categories=severity_order, ordered=True)
-
             line = (
                 alt.Chart(plot_df.head(200))
                 .mark_line(point=True)
@@ -689,17 +686,25 @@ if do_run and pcap_path and model is not None:
             st.altair_chart(line, use_container_width=True)
 
         except Exception:
-            # Altair unavailable or failed — fallback to simple Streamlit charts (colors not customizable here)
-            # Traffic Overview fallback (severity counts)
-            st.bar_chart(results["severity"].value_counts().loc[["HIGH", "MEDIUM", "LOW", "NORMAL"]].fillna(0))
+            # safe fallback: build ordered counts without .loc indexing to avoid KeyError
+            counts_series = results["severity"].value_counts().to_dict()
+            severity_order = ["HIGH", "MEDIUM", "LOW", "NORMAL"]
+            ordered = pd.Series({k: int(counts_series.get(k, 0)) for k in severity_order})
+            st.bar_chart(ordered)
 
             st.markdown("### Probability Distribution")
-            st.bar_chart(results["malicious_probability"].value_counts().sort_index())
+            try:
+                st.bar_chart(results["malicious_probability"].value_counts().sort_index())
+            except Exception:
+                st.write(results["malicious_probability"].head(200))
 
             st.markdown("### Attack Probability Over Sample")
-            st.line_chart(results["malicious_probability"].head(200))
+            try:
+                st.line_chart(results["malicious_probability"].head(200))
+            except Exception:
+                st.write(results["malicious_probability"].head(200))
 
-        # Detected Flows — Interactive View (left unchanged as requested)
+        # Detected Flows — Interactive View
         st.markdown("### Detected Flows — Interactive View")
         filtered = results[results["malicious_probability"] >= prob_filter].sort_values("malicious_probability", ascending=False)
         if filtered.shape[0] == 0:
@@ -719,7 +724,6 @@ if do_run and pcap_path and model is not None:
                 except Exception:
                     st.dataframe(display_df, height=400)
             else:
-                # styled dataframe: highlight attack rows (UNCHANGED)
                 def _highlight(row):
                     return ["background-color: #ff4c4c; color: white; font-weight:700" if row["prediction"] == "ATTACK" else "background-color: #28a745; color: white; font-weight:700" for _ in row]
                 try:
@@ -759,7 +763,10 @@ if do_run and pcap_path and model is not None:
         if show_raw:
             st.markdown("---")
             st.subheader("Raw extracted features (first 300 rows)")
-            st.dataframe(df.head(300))
+            try:
+                st.dataframe(df.head(300))
+            except Exception:
+                st.write(df.head(300))
 
     section_card("Inspect / Export", render_inspect_and_export)
 
