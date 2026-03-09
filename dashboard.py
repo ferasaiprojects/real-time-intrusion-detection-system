@@ -1,6 +1,6 @@
 """
 Streamlit dashboard for AI Intrusion Detection System
-Updated to be robust with the new pcap extractor and the new predict.py API.
+Updated: softer card shadows and larger wrapped page title.
 """
 
 import os
@@ -180,81 +180,97 @@ def map_severity_by_prob(prob: float) -> str:
 # ---------- Page config ----------
 st.set_page_config(page_title="AI Intrusion Detection System", page_icon="🛡️", layout="wide")
 
-# ---------- CSS for theme & headers----------
+# ---------- CSS for theme & headers (softer shadows + larger title) ----------
 _COMMON_CSS = r"""
 <style>
 :root{
-  --accent1: #0b76ff; 
-  --accent2: #00b894; 
-  --muted-dark: #9fb4d8; 
-  --muted-light: #475569; 
+  --accent1: #0b76ff;
+  --accent2: #00b894;
+  --muted-dark: #9fb4d8;
+  --muted-light: #475569;
   --card-bg: rgba(255,255,255,0.02);
+  --card-border: rgba(255,255,255,0.04);
+  /* Softer shadow values (reduced elevation) */
+  --shadow-soft: 0 4px 10px rgba(2,6,23,0.12);
+  --shadow-subtle: 0 2px 6px rgba(2,6,23,0.08);
 }
+
+/* Page title card: bigger and wraps nicely */
+.page-title {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:18px 18px;
+  margin-bottom:14px;
+  border-radius:12px;
+  border-left:6px solid var(--accent1);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  box-shadow: var(--shadow-subtle);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.page-title .headline { font-size: 1.65rem; font-weight:900; line-height:1.05; }
+.page-title .sub { opacity:0.85; color:var(--muted-dark); font-size:0.98rem; }
+
+/* Generic section card (softer elevation) */
+.section-card {
+  border-radius:10px;
+  padding:12px;
+  margin-bottom:12px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Section header within a card */
+.section-header-card {
+  display:flex; align-items:center; gap:12px;
+  padding:8px 10px; border-radius:8px; border-left:6px solid var(--accent1);
+  background: rgba(255,255,255,0.01); margin-bottom:8px;
+}
+.section-header-card h3 { margin:0; font-size:1.05rem; }
 
 /* Grid: fixed two columns on wide screens, single column on narrow */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(240px, 1fr)); /* <-- enforce 2 columns */
-  gap: 18px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
   align-items: stretch;
 }
 
-/* Card layout */
+/* KPI card (reduced shadow and slightly flatter) */
 .summary-card {
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: 10px;
+  padding: 12px;
   position: relative;
   overflow: hidden;
-  min-height: 96px;
+  min-height: 84px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 6px;
   background: var(--card-bg);
   border: 1px solid rgba(255,255,255,0.03);
+  box-shadow: var(--shadow-subtle);
 }
+.summary-card .title { font-size: 0.90rem; font-weight: 700; color: var(--muted-light); letter-spacing: 0.2px; }
+.summary-card .value { font-size: 1.6rem; font-weight: 800; line-height: 1; color: var(--accent1); display: block; }
+.summary-card .sub { font-size: 0.82rem; color: var(--muted-dark); opacity: 0.95; }
+.summary-card.kpi { border-left: 6px solid var(--accent2); padding-left: 12px; }
 
-/* make KPI content structured */
-.summary-card .title {
-  font-size: 0.90rem;
-  font-weight: 700;
-  color: var(--muted-light);
-  letter-spacing: 0.2px;
-}
-
-.summary-card .value {
-  font-size: 1.8rem;
-  font-weight: 800;
-  line-height: 1;
-  color: var(--accent1);
-  display: block;
-}
-
-/* secondary text */
-.summary-card .sub {
-  font-size: 0.82rem;
-  color: var(--muted-dark);
-  opacity: 0.95;
-}
-
-/* subtle accent bar on left */
-.summary-card.kpi {
-  border-left: 6px solid var(--accent2);
-  padding-left: 12px;
-}
-
-/* compact sample / other card tweaks */
-.section-header { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; border-left:6px solid var(--accent1); background: rgba(255,255,255,0.02); margin-bottom:8px; }
-.section-header h3 { margin:0; font-size:1.05rem; }
-.sample-card { border-radius:8px; padding:8px; background: rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.03); margin-bottom:8px; }
+/* sample card smaller & subtle */
+.sample-card { border-radius:8px; padding:8px; background: rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.02); margin-bottom:8px; box-shadow: var(--shadow-subtle); }
 .sample-card .meta { font-size:0.82rem; color:var(--muted-light); }
 
-/* Responsive: single column on small screens */
+/* small screen responsive */
 @media (max-width:880px){
   .card-grid { grid-template-columns: 1fr; }
-  .summary-card { min-height: 84px; padding: 12px; }
-  .summary-card .value { font-size: 1.5rem; }
+  .summary-card { min-height: 76px; padding: 10px; }
+  .summary-card .value { font-size: 1.3rem; }
+  .page-title { padding:12px; }
+  .page-title .headline { font-size: 1.35rem; }
 }
 </style>
 """
@@ -262,35 +278,27 @@ _COMMON_CSS = r"""
 _DARK_CSS = """
 <style>
 .stApp { background: linear-gradient(180deg,#041022,#07182a) !important; color: #e6f0ff !important; }
-.summary-card { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); box-shadow: 0 8px 30px rgba(2,6,23,0.6); color: #e6f0ff; }
-.section-header { background: rgba(255,255,255,0.02); }
+.section-card { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); color: #e6f0ff; }
 .sample-card { background: rgba(255,255,255,0.02); }
+.summary-card { color: #e6f0ff; }
 </style>
 """
 
 _LIGHT_CSS = """
 <style>
 .stApp { background: linear-gradient(180deg,#f8fafc,#eef2ff) !important; color: #071023 !important; }
-.summary-card { background: linear-gradient(180deg,#ffffff,#f7f9fb); box-shadow: 0 6px 18px rgba(16,24,40,0.06); color: #071023; }
-.section-header { background: rgba(0,0,0,0.02); }
+.section-card { background: linear-gradient(180deg,#ffffff,#f7f9fb); color: #071023; }
 .sample-card { background: rgba(255,255,255,0.98); }
+.summary-card { color: #071023; }
 </style>
 """
 
-st.markdown(_COMMON_CSS, unsafe_allow_html=True)
-
-# ---------- Load model resource (optional) ----------
-@st.cache_resource
-def load_model(path: str = MODEL_PATH):
-    if not os.path.exists(path):
-        raise FileNotFoundError(path)
-    return joblib.load(path)
-
-# ---------- Sidebar controls ----------
+# ---------- Sidebar controls (we need ui_theme early so theme injection works) ----------
 with st.sidebar:
     st.title("⚙️ Controls")
     ui_theme = st.selectbox("UI Theme", ["Soft-Dark (recommended)", "Light (high-contrast)"], index=0)
     background_style = st.selectbox("Background", ["Professional gradient (recommended)", "Plain"], index=0)
+
     st.markdown("---")
     label_preset = st.selectbox("Label Preset",
                                 ["Binary (BENIGN / MALICIOUS)", "Severity (NORMAL/LOW/MEDIUM/HIGH)", "Custom labels"],
@@ -325,6 +333,46 @@ with st.sidebar:
             except Exception:
                 st.sidebar.info("Could not programmatically rerun the app. Reload the browser page as fallback.")
 
+# ---------- Inject CSS & theme wrapper (now that ui_theme is known) ----------
+st.markdown(_COMMON_CSS, unsafe_allow_html=True)
+if ui_theme.startswith("Soft"):
+    st.markdown(_DARK_CSS, unsafe_allow_html=True)
+else:
+    st.markdown(_LIGHT_CSS, unsafe_allow_html=True)
+
+if background_style.startswith("Professional"):
+    st.markdown("""
+    <style>
+    body > div[role="application"] { background-image: radial-gradient(circle at 10% 10%, rgba(11,118,255,0.03), transparent 10%), linear-gradient(180deg, rgba(3,10,20,0.6), rgba(3,10,20,0.85)); background-attachment: fixed; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ---------- helpers to render consistent cards ----------
+def section_card(title: str, body_callable):
+    """Render a titled section in a rounded card. body_callable is a function that renders the body when called."""
+    st.markdown(f"<div class='section-card'><div class='section-header-card'><h3>{title}</h3></div>", unsafe_allow_html=True)
+    try:
+        body_callable()
+    except Exception as e:
+        st.error(f"Rendering section '{title}' failed: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def small_kpi(title: str, value: str, sub: str, kclass=""):
+    return f"""
+    <div class='summary-card kpi {kclass}'>
+      <div class='title'>{title}</div>
+      <div class='value'>{value}</div>
+      <div class='sub'>{sub}</div>
+    </div>
+    """
+
+# ---------- Load model resource (optional) ----------
+@st.cache_resource
+def load_model(path: str = MODEL_PATH):
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    return joblib.load(path)
+
 # ---------- Load model (best-effort) ----------
 try:
     model = load_model()
@@ -342,85 +390,105 @@ try:
 except Exception:
     aggrid_available = False
 
-# ---------- Main UI ----------
-st.markdown("# 🛡️ AI-Powered Intrusion Detection System")
+# ---------- Page title (wrapped in card) ----------
+st.markdown(
+    "<div class='page-title'><div><div class='headline'>🛡️ AI-Powered Intrusion Detection System</div>"
+    "<div class='sub'>Streamlit · PCAP → features → model</div></div></div>",
+    unsafe_allow_html=True
+)
 st.markdown("Upload a PCAP, choose label scheme and run detection. Use controls on the left.")
 
+# ---------- Left / Right layout ----------
 left, right = st.columns([2, 1])
 
+# PCAP Source section (left)
 with left:
-    st.markdown("### 1) PCAP Source")
-    sample_list = find_sample_pcaps()
-    source_mode = st.radio("Choose PCAP source:", ["Use default sample (recommended)", "Upload custom PCAP"], index=0)
-    pcap_path = None
-    if source_mode.startswith("Use default"):
-        if sample_list:
-            filenames = [os.path.basename(p) for p in sample_list]
-            selected_idx = st.session_state.get("selected_default_idx", 0)
-            if selected_idx >= len(filenames):
-                selected_idx = 0
-            sel = st.selectbox("Select default sample:", options=filenames, index=selected_idx)
-            sel_idx = filenames.index(sel)
-            st.session_state["selected_default_idx"] = sel_idx
-            pcap_path = sample_list[sel_idx]
-            st.success(f"Using default sample: {os.path.basename(pcap_path)}")
-            st.write(pcap_path)
+    def render_pcap_source():
+        sample_list = find_sample_pcaps()
+        source_mode = st.radio("Choose PCAP source:", ["Use default sample (recommended)", "Upload custom PCAP"], index=0)
+        pcap_path = None
+        if source_mode.startswith("Use default"):
+            if sample_list:
+                filenames = [os.path.basename(p) for p in sample_list]
+                selected_idx = st.session_state.get("selected_default_idx", 0)
+                if selected_idx >= len(filenames):
+                    selected_idx = 0
+                sel = st.selectbox("Select default sample:", options=filenames, index=selected_idx)
+                sel_idx = filenames.index(sel)
+                st.session_state["selected_default_idx"] = sel_idx
+                pcap_path = sample_list[sel_idx]
+                st.success(f"Using default sample: {os.path.basename(pcap_path)}")
+                st.write(pcap_path)
+            else:
+                st.warning("No sample PCAP files found in sample directories. Upload a PCAP or place sample files in one of the sample directories.")
+                uploaded = st.file_uploader("Upload PCAP (.pcap)", type=["pcap"])
+                if uploaded is not None:
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pcap")
+                    tmp.write(uploaded.read())
+                    tmp.flush()
+                    tmp.close()
+                    st.session_state["_tmp_pcap"] = tmp.name
+                    pcap_path = tmp.name
         else:
-            st.warning("No sample PCAP files found in sample directories. Upload a PCAP or place sample files in one of the sample directories.")
             uploaded = st.file_uploader("Upload PCAP (.pcap)", type=["pcap"])
             if uploaded is not None:
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pcap")
                 tmp.write(uploaded.read())
                 tmp.flush()
                 tmp.close()
+                st.session_state["_tmp_pcap"] = tmp.name
                 pcap_path = tmp.name
-    else:
-        uploaded = st.file_uploader("Upload PCAP (.pcap)", type=["pcap"])
-        if uploaded is not None:
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pcap")
-            tmp.write(uploaded.read())
-            tmp.flush()
-            tmp.close()
-            pcap_path = tmp.name
-        else:
-            st.info("No custom PCAP uploaded yet. Choose 'Use default sample' to run immediately using a sample file.")
+            else:
+                st.info("No custom PCAP uploaded yet. Choose 'Use default sample' to run immediately using a sample file.")
 
-    st.markdown("**PCAP path:**")
-    st.write(pcap_path if pcap_path else "No PCAP selected")
-    st.markdown("Press **R** to re-run inference (keyboard shortcut)")
+        st.markdown("**PCAP path:**")
+        st.write(pcap_path if pcap_path else "No PCAP selected")
+        st.markdown("Press **R** to re-run inference (keyboard shortcut)")
+        # expose pcap_path for outer scope
+        st.session_state["_pcap_path"] = pcap_path
 
+    section_card("1) PCAP Source", render_pcap_source)
+
+# Samples & Model Info section (right)
 with right:
-    st.markdown("### Samples")
-    if sample_list:
-        for sp in sample_list:
-            s = get_sample_summary(sp)
-            highlight = (pcap_path == s.get("path"))
-            card_html = f"""
-            <div style='border-radius:8px; padding:8px; background: rgba(255,255,255,0.01); border:1px solid {"#0b76ff" if highlight else "rgba(255,255,255,0.03)"}; margin-bottom:8px;'>
-              <div style='display:flex; justify-content:space-between; align-items:center;'>
-                <div style='font-weight:700'>{s.get('name')}</div>
-                <div style='font-size:0.82rem; color:#9fb4d8'>{s.get('num_flows', '?')} flows</div>
-              </div>
-              <div style='font-size:0.85rem; margin-top:6px;'>Size: {s.get('size_bytes', '?')} bytes<br>Modified: {s.get('modified_time', '-')}</div>
-            </div>
-            """
-            st.markdown(card_html, unsafe_allow_html=True)
-            if s.get("preview"):
-                try:
-                    preview_df = pd.DataFrame([s.get("preview")])
-                    st.dataframe(preview_df, height=90)
-                except Exception:
-                    st.write(s.get("preview"))
-            elif s.get("preview_error"):
-                st.caption("Preview error: " + str(s.get("preview_error")))
-    else:
-        st.info("No sample files found. Place .pcap files in one of the sample directories or upload a custom PCAP.")
+    def render_samples_and_model():
+        sample_list = find_sample_pcaps()
+        st.markdown("<div style='display:flex;flex-direction:column;gap:8px'>", unsafe_allow_html=True)
+        st.markdown("<div style='font-weight:700;margin-bottom:6px'>Samples</div>", unsafe_allow_html=True)
+        if sample_list:
+            for sp in sample_list:
+                s = get_sample_summary(sp)
+                highlight = (st.session_state.get("_pcap_path") == s.get("path"))
+                card_html = f"""
+                <div class='sample-card' style='border: 1px solid {"#0b76ff" if highlight else "rgba(255,255,255,0.02)"};'>
+                  <div style='display:flex; justify-content:space-between; align-items:center;'>
+                    <div style='font-weight:700'>{s.get('name')}</div>
+                    <div class='meta'>{s.get('num_flows', '?')} flows</div>
+                  </div>
+                  <div style='font-size:0.85rem; margin-top:6px;'>Size: {s.get('size_bytes', '?')} bytes<br>Modified: {s.get('modified_time', '-')}</div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+                if s.get("preview"):
+                    try:
+                        preview_df = pd.DataFrame([s.get("preview")])
+                        st.dataframe(preview_df, height=90)
+                    except Exception:
+                        st.write(s.get("preview"))
+                elif s.get("preview_error"):
+                    st.caption("Preview error: " + str(s.get("preview_error")))
+        else:
+            st.info("No sample files found. Place .pcap files in one of the sample directories or upload a custom PCAP.")
 
-    st.markdown("### Model & Quick Info")
-    st.markdown(f"**Model Path:** `{MODEL_PATH}`")
-    st.markdown(f"**Threshold:** {threshold:.2f}")
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown("<div style='font-weight:700;margin-bottom:6px'>Model & Quick Info</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='section-card'><div style='font-weight:700'>Model Path</div><div style='padding-top:6px'>{os.path.basename(MODEL_PATH)}</div><div style='color:var(--muted-dark);padding-top:4px'>Threshold: {threshold:.2f}</div></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    section_card("Samples & Model", render_samples_and_model)
 
 # ---------- Run logic ----------
+pcap_path = st.session_state.get("_pcap_path", None)
 do_run = (run_on_upload and pcap_path is not None) or st.button("Extract & Predict ▶️")
 
 if not pcap_path:
@@ -434,7 +502,7 @@ if do_run and pcap_path and model is not None:
                 st.error("PCAP feature extractor not available (pcap_feature_extractor.py not importable).")
                 st.stop()
             raw_df = extract_features_from_pcap(pcap_path)
-            if raw_df is None or raw_df.shape[0] == 0:
+            if raw_df is None or getattr(raw_df, "shape", (0, 0))[0] == 0:
                 st.warning("No flows parsed from PCAP. Check the file content.")
                 st.stop()
             # cap the number of flows right here
@@ -546,104 +614,114 @@ if do_run and pcap_path and model is not None:
         threat = "HIGH"
         color_emoji = "🔴"
 
-    # KPI cards
-    st.markdown("### Summary")
-    kpis = [
-        ("Total Flows", total, "Total parsed flows"),
-        ("Benign / Normal", normals, "Non-alert flows"),
-        ("Suspicious / Alerts", attacks, "Detected suspicious flows"),
-        ("Threat Level", f"{threat} {color_emoji}", f"{attack_ratio*100:.2f}% of flows"),
-    ]
-    cols = st.columns(len(kpis))
-    for col, (title, value, sub) in zip(cols, kpis):
-        with col:
-            st.markdown(f"**{title}**")
-            st.markdown(f"<div style='font-size:22px; font-weight:800'>{value}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='color: #8aa0c8'>{sub}</div>", unsafe_allow_html=True)
+    # ---- KPI cards ----
+    def render_summary():
+        st.markdown("<div class='card-grid'>", unsafe_allow_html=True)
+        kpis = [
+            ("Total Flows", total, "Total parsed flows"),
+            ("Benign / Normal", normals, "Non-alert flows"),
+            ("Suspicious / Alerts", attacks, "Detected suspicious flows"),
+            ("Threat Level", f"{threat} {color_emoji}", f"{attack_ratio*100:.2f}% of flows"),
+        ]
+        for title, value, sub in kpis:
+            st.markdown(small_kpi(title, value, sub), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # charts & tables
-    st.markdown("### Traffic Overview")
-    try:
-        import altair as alt
-        label_counts = results.groupby("label").size().reset_index(name="count").sort_values("count", ascending=False)
-        bar = (
-            alt.Chart(label_counts)
-            .mark_bar()
-            .encode(x=alt.X("label:N", title="Label", sort="-y"), y=alt.Y("count:Q", title="Count"), tooltip=["label", "count"])
-            .properties(height=220)
-        )
-        st.altair_chart(bar, use_container_width=True)
-    except Exception:
-        st.bar_chart(results["label"].value_counts())
+    section_card("Summary", render_summary)
 
-    st.markdown("### Probability Distribution")
-    try:
-        import altair as alt
-        hist = (
-            alt.Chart(results)
-            .mark_bar()
-            .encode(
-                x=alt.X("malicious_probability:Q", bin=alt.Bin(maxbins=40), title="Malicious probability"),
-                y=alt.Y("count():Q", title="Flows"),
-                tooltip=[alt.Tooltip("count()", title="Flows")]
+    # Charts & Table
+    def render_charts_and_table():
+        st.markdown("### Traffic Overview")
+        try:
+            import altair as alt
+            label_counts = results.groupby("label").size().reset_index(name="count").sort_values("count", ascending=False)
+            bar = (
+                alt.Chart(label_counts)
+                .mark_bar()
+                .encode(x=alt.X("label:N", title="Label", sort="-y"), y=alt.Y("count:Q", title="Count"), tooltip=["label", "count"])
+                .properties(height=220)
             )
-            .properties(height=220)
-        )
-        st.altair_chart(hist, use_container_width=True)
-    except Exception:
-        st.bar_chart(results["malicious_probability"].value_counts().sort_index())
+            st.altair_chart(bar, use_container_width=True)
+        except Exception:
+            st.bar_chart(results["label"].value_counts())
 
-    st.markdown("### Attack Probability Over Sample")
-    st.line_chart(results["malicious_probability"].head(200))
+        st.markdown("### Probability Distribution")
+        try:
+            import altair as alt
+            hist = (
+                alt.Chart(results)
+                .mark_bar()
+                .encode(
+                    x=alt.X("malicious_probability:Q", bin=alt.Bin(maxbins=40), title="Malicious probability"),
+                    y=alt.Y("count():Q", title="Flows"),
+                    tooltip=[alt.Tooltip("count()", title="Flows")]
+                )
+                .properties(height=220)
+            )
+            st.altair_chart(hist, use_container_width=True)
+        except Exception:
+            st.bar_chart(results["malicious_probability"].value_counts().sort_index())
 
-    st.markdown("### Detected Flows — Interactive View")
-    filtered = results[results["malicious_probability"] >= prob_filter].sort_values("malicious_probability", ascending=False)
-    if filtered.shape[0] == 0:
-        st.info("No flows match the current probability filter. Lower the filter or choose a different PCAP.")
-    else:
-        top = filtered.head(top_n).copy()
-        display_cols = ["label", "malicious_probability", "prediction_int"] + [c for c in top.columns if c.startswith("dummy_")][:3]
-        display_cols = [c for c in display_cols if c in top.columns]
-        display_df = top[display_cols]
+        st.markdown("### Attack Probability Over Sample")
+        st.line_chart(results["malicious_probability"].head(200))
 
-        if aggrid_available:
-            try:
-                gb = GridOptionsBuilder.from_dataframe(display_df)
-                gb.configure_selection(selection_mode='single', use_checkbox=True)
-                grid_options = gb.build()
-                AgGrid(display_df, gridOptions=grid_options, height=350)
-            except Exception:
-                st.dataframe(display_df, height=400)
+        st.markdown("### Detected Flows — Interactive View")
+        filtered = results[results["malicious_probability"] >= prob_filter].sort_values("malicious_probability", ascending=False)
+        if filtered.shape[0] == 0:
+            st.info("No flows match the current probability filter. Lower the filter or choose a different PCAP.")
         else:
-            st.dataframe(display_df, height=400)
+            top = filtered.head(top_n).copy()
+            display_cols = ["label", "malicious_probability", "prediction_int"] + [c for c in top.columns if c.startswith("dummy_")][:3]
+            display_cols = [c for c in display_cols if c in top.columns]
+            display_df = top[display_cols]
 
-    st.markdown("### Inspect a single flow / JSON view")
-    idx = st.number_input("Row index (0-based)", 0, max(0, total - 1), 0)
-    if total > 0:
-        row = results.iloc[int(idx)].to_dict()
-        st.json(row)
+            if aggrid_available:
+                try:
+                    gb = GridOptionsBuilder.from_dataframe(display_df)
+                    gb.configure_selection(selection_mode='single', use_checkbox=True)
+                    grid_options = gb.build()
+                    AgGrid(display_df, gridOptions=grid_options, height=350)
+                except Exception:
+                    st.dataframe(display_df, height=400)
+            else:
+                st.dataframe(display_df, height=400)
 
-    st.markdown("### Export results")
-    csv_bytes = results.to_csv(index=False).encode("utf-8")
-    json_str = results.to_json(orient="records", indent=2)
-    st.download_button("📥 Download CSV", csv_bytes, file_name="ai_ids_results.csv", mime="text/csv")
-    st.download_button("📥 Download JSON", json_str.encode("utf-8"), file_name="ai_ids_results.json", mime="application/json")
+    section_card("Traffic & Tables", render_charts_and_table)
 
-    if st.button("💾 Save results to predictions.csv (server)"):
-        out_path = "predictions.csv"
-        results.to_csv(out_path, index=False)
-        st.success(f"Saved to {out_path}")
+    # single flow inspector
+    def render_inspector():
+        st.markdown("### Inspect a single flow / JSON view")
+        idx = st.number_input("Row index (0-based)", 0, max(0, total - 1), 0)
+        if total > 0:
+            row = results.iloc[int(idx)].to_dict()
+            st.json(row)
 
-    if show_raw:
-        st.markdown("---")
-        st.subheader("Raw extracted features (first 300 rows)")
-        st.dataframe(df.head(300))
+    section_card("Inspect Flow", render_inspector)
+
+    # export
+    def render_export():
+        st.markdown("### Export results")
+        csv_bytes = results.to_csv(index=False).encode("utf-8")
+        json_str = results.to_json(orient="records", indent=2)
+        st.download_button("📥 Download CSV", csv_bytes, file_name="ai_ids_results.csv", mime="text/csv")
+        st.download_button("📥 Download JSON", json_str.encode("utf-8"), file_name="ai_ids_results.json", mime="application/json")
+        if st.button("💾 Save results to predictions.csv (server)"):
+            out_path = "predictions.csv"
+            results.to_csv(out_path, index=False)
+            st.success(f"Saved to {out_path}")
+        if show_raw:
+            st.markdown("---")
+            st.subheader("Raw extracted features (first 300 rows)")
+            st.dataframe(df.head(300))
+
+    section_card("Export & Raw", render_export)
 
     st.success("Detection completed ✅")
 
 else:
-    st.markdown("### Welcome")
-    st.markdown("This dashboard extracts features from PCAPs and runs a trained ML model to detect suspicious activity. Use the controls on the left to configure labels, thresholds and run detection.")
+    def render_welcome():
+        st.markdown("This dashboard extracts features from PCAPs and runs a trained ML model to detect suspicious activity. Use the controls on the left to configure labels, thresholds and run detection.")
+    section_card("Welcome", render_welcome)
 
 # ---------- Keyboard shortcut (R to rerun) ----------
 st.markdown("""
