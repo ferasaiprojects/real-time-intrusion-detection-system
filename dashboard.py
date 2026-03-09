@@ -1,6 +1,6 @@
 """
 Streamlit dashboard for AI Intrusion Detection System
-Updated: softer card shadows and larger wrapped page title.
+Merged: soft theme + large title + threat color card + metrics + robust extractor/predict plumbing.
 """
 
 import os
@@ -41,7 +41,6 @@ SAMPLE_DIR_CANDIDATES = ["sample_pcap", "sample_pcaps", "sample_pcap/", "sample_
 EXPECTED_FEATURES = 42
 MAX_TOP_ROWS = 500
 
-# exact FEATURE_COLUMNS used for alignment (keep in sync with extractor & model)
 FEATURE_COLUMNS = [
     'dur', 'proto', 'service', 'state', 'spkts', 'dpkts', 'sbytes',
     'dbytes', 'rate', 'sttl', 'dttl', 'sload', 'dload', 'sloss',
@@ -158,10 +157,8 @@ def pad_features(df: pd.DataFrame, expected_cols: int = EXPECTED_FEATURES) -> pd
     return df
 
 def fallback_align_pcap_df_to_model(df: pd.DataFrame, model=None, train_csv: Optional[str]=None) -> pd.DataFrame:
-    """If src.predict.align_pcap_df_to_model is missing, align columns using FEATURE_COLUMNS."""
     if not isinstance(df, pd.DataFrame):
         df = pd.DataFrame(df)
-    # keep only columns we know (intersection) then reindex to FEATURE_COLUMNS adding zeros
     aligned = pd.DataFrame(0, index=range(len(df)), columns=FEATURE_COLUMNS)
     for c in df.columns:
         if c in aligned.columns:
@@ -180,7 +177,7 @@ def map_severity_by_prob(prob: float) -> str:
 # ---------- Page config ----------
 st.set_page_config(page_title="AI Intrusion Detection System", page_icon="🛡️", layout="wide")
 
-# ---------- CSS for theme & headers (softer shadows + larger title) ----------
+# ---------- CSS (softer shadows + larger title) ----------
 _COMMON_CSS = r"""
 <style>
 :root{
@@ -190,12 +187,11 @@ _COMMON_CSS = r"""
   --muted-light: #475569;
   --card-bg: rgba(255,255,255,0.02);
   --card-border: rgba(255,255,255,0.04);
-  /* Softer shadow values (reduced elevation) */
   --shadow-soft: 0 4px 10px rgba(2,6,23,0.12);
   --shadow-subtle: 0 2px 6px rgba(2,6,23,0.08);
 }
 
-/* Page title card: bigger and wraps nicely */
+/* Page title card */
 .page-title {
   display:flex;
   align-items:center;
@@ -213,7 +209,7 @@ _COMMON_CSS = r"""
 .page-title .headline { font-size: 1.65rem; font-weight:900; line-height:1.05; }
 .page-title .sub { opacity:0.85; color:var(--muted-dark); font-size:0.98rem; }
 
-/* Generic section card (softer elevation) */
+/* Generic section card */
 .section-card {
   border-radius:10px;
   padding:12px;
@@ -231,21 +227,13 @@ _COMMON_CSS = r"""
 }
 .section-header-card h3 { margin:0; font-size:1.05rem; }
 
-/* Grid: fixed two columns on wide screens, single column on narrow */
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(240px, 1fr));
-  gap: 14px;
-  margin-bottom: 14px;
-  align-items: stretch;
-}
+/* Grid */
+.card-grid { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 14px; margin-bottom: 14px; align-items: stretch; }
 
-/* KPI card (reduced shadow and slightly flatter) */
+/* KPI card */
 .summary-card {
   border-radius: 10px;
   padding: 12px;
-  position: relative;
-  overflow: hidden;
   min-height: 84px;
   display: flex;
   flex-direction: column;
@@ -255,16 +243,13 @@ _COMMON_CSS = r"""
   border: 1px solid rgba(255,255,255,0.03);
   box-shadow: var(--shadow-subtle);
 }
-.summary-card .title { font-size: 0.90rem; font-weight: 700; color: var(--muted-light); letter-spacing: 0.2px; }
-.summary-card .value { font-size: 1.6rem; font-weight: 800; line-height: 1; color: var(--accent1); display: block; }
-.summary-card .sub { font-size: 0.82rem; color: var(--muted-dark); opacity: 0.95; }
+.summary-card .title { font-size: 0.90rem; font-weight: 700; color: var(--muted-light); }
+.summary-card .value { font-size: 1.6rem; font-weight: 800; color: var(--accent1); }
 .summary-card.kpi { border-left: 6px solid var(--accent2); padding-left: 12px; }
 
-/* sample card smaller & subtle */
 .sample-card { border-radius:8px; padding:8px; background: rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.02); margin-bottom:8px; box-shadow: var(--shadow-subtle); }
 .sample-card .meta { font-size:0.82rem; color:var(--muted-light); }
 
-/* small screen responsive */
 @media (max-width:880px){
   .card-grid { grid-template-columns: 1fr; }
   .summary-card { min-height: 76px; padding: 10px; }
@@ -293,7 +278,7 @@ _LIGHT_CSS = """
 </style>
 """
 
-# ---------- Sidebar controls (we need ui_theme early so theme injection works) ----------
+# ---------- Sidebar controls ----------
 with st.sidebar:
     st.title("⚙️ Controls")
     ui_theme = st.selectbox("UI Theme", ["Soft-Dark (recommended)", "Light (high-contrast)"], index=0)
@@ -333,7 +318,7 @@ with st.sidebar:
             except Exception:
                 st.sidebar.info("Could not programmatically rerun the app. Reload the browser page as fallback.")
 
-# ---------- Inject CSS & theme wrapper (now that ui_theme is known) ----------
+# ---------- Inject CSS & theme wrapper ----------
 st.markdown(_COMMON_CSS, unsafe_allow_html=True)
 if ui_theme.startswith("Soft"):
     st.markdown(_DARK_CSS, unsafe_allow_html=True)
@@ -347,9 +332,8 @@ if background_style.startswith("Professional"):
     </style>
     """, unsafe_allow_html=True)
 
-# ---------- helpers to render consistent cards ----------
+# ---------- helpers ----------
 def section_card(title: str, body_callable):
-    """Render a titled section in a rounded card. body_callable is a function that renders the body when called."""
     st.markdown(f"<div class='section-card'><div class='section-header-card'><h3>{title}</h3></div>", unsafe_allow_html=True)
     try:
         body_callable()
@@ -366,14 +350,13 @@ def small_kpi(title: str, value: str, sub: str, kclass=""):
     </div>
     """
 
-# ---------- Load model resource (optional) ----------
+# ---------- Load model ----------
 @st.cache_resource
 def load_model(path: str = MODEL_PATH):
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     return joblib.load(path)
 
-# ---------- Load model (best-effort) ----------
 try:
     model = load_model()
 except FileNotFoundError:
@@ -383,14 +366,14 @@ except Exception as e:
     st.sidebar.error(f"Error loading model: {e}")
     model = None
 
-# optional AG Grid
+# optional AgGrid
 try:
     from st_aggrid import AgGrid, GridOptionsBuilder
     aggrid_available = True
 except Exception:
     aggrid_available = False
 
-# ---------- Page title (wrapped in card) ----------
+# ---------- Page title ----------
 st.markdown(
     "<div class='page-title'><div><div class='headline'>🛡️ AI-Powered Intrusion Detection System</div>"
     "<div class='sub'>Streamlit · PCAP → features → model</div></div></div>",
@@ -398,10 +381,9 @@ st.markdown(
 )
 st.markdown("Upload a PCAP, choose label scheme and run detection. Use controls on the left.")
 
-# ---------- Left / Right layout ----------
+# ---------- Layout ----------
 left, right = st.columns([2, 1])
 
-# PCAP Source section (left)
 with left:
     def render_pcap_source():
         sample_list = find_sample_pcaps()
@@ -444,12 +426,10 @@ with left:
         st.markdown("**PCAP path:**")
         st.write(pcap_path if pcap_path else "No PCAP selected")
         st.markdown("Press **R** to re-run inference (keyboard shortcut)")
-        # expose pcap_path for outer scope
         st.session_state["_pcap_path"] = pcap_path
 
     section_card("1) PCAP Source", render_pcap_source)
 
-# Samples & Model Info section (right)
 with right:
     def render_samples_and_model():
         sample_list = find_sample_pcaps()
@@ -505,14 +485,12 @@ if do_run and pcap_path and model is not None:
             if raw_df is None or getattr(raw_df, "shape", (0, 0))[0] == 0:
                 st.warning("No flows parsed from PCAP. Check the file content.")
                 st.stop()
-            # cap the number of flows right here
             if raw_df.shape[0] > num_flows:
                 raw_df = raw_df.head(num_flows).reset_index(drop=True)
         except Exception as e:
             st.exception(f"Feature extraction failed: {e}")
             st.stop()
 
-    # Align extracted PCAP features to the model's expected feature names
     try:
         if HAVE_ALIGN and align_pcap_df_to_model:
             aligned_df = align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
@@ -522,21 +500,17 @@ if do_run and pcap_path and model is not None:
         st.warning(f"Failed to align PCAP features with model automatically: {e}. Applying fallback alignment.")
         aligned_df = fallback_align_pcap_df_to_model(raw_df, model, train_csv="data/UNSW_NB15_training-set.csv")
 
-    # pad / reorder columns as before
     df = pad_features(aligned_df, EXPECTED_FEATURES)
 
-    # run inference using project's predict function if available, otherwise attempt to use a local model
     with st.spinner("Running model inference... 🤖"):
         try:
             if predict_traffic is None:
                 raise RuntimeError("predict_traffic not available from src.predict")
-            # project predict_traffic often expects dataframe aligned to FEATURE_COLUMNS
             results_list = predict_traffic(df, threshold=threshold) if callable(predict_traffic) else []
-            # results_list expected to be list of dicts with keys like 'attack_probability' / 'malicious_probability' and 'prediction'
             probs = []
             preds_int = []
+            preds_label = []
             for r in results_list:
-                # robust extraction of probability
                 p = None
                 if isinstance(r, dict):
                     p = r.get("attack_probability") or r.get("malicious_probability") or r.get("malicious_prob") or r.get("mal_prob")
@@ -545,24 +519,23 @@ if do_run and pcap_path and model is not None:
                 except Exception:
                     p = 0.0
                 probs.append(p)
-                pred_label = None
+                pred_label_val = None
                 if isinstance(r, dict):
-                    pred_label = r.get("prediction") or r.get("label")
-                pred_label = str(pred_label).upper() if pred_label is not None else ""
-                if pred_label in ("ATTACK", "MALICIOUS", "1", "TRUE"):
+                    pred_label_val = r.get("prediction") or r.get("label")
+                pred_label_val = str(pred_label_val).upper() if pred_label_val is not None else ""
+                if pred_label_val in ("ATTACK", "MALICIOUS", "1", "TRUE"):
                     preds_int.append(1)
+                    preds_label.append("ATTACK")
                 else:
                     preds_int.append(0)
+                    preds_label.append("NORMAL")
         except Exception as e:
             st.error(f"Inference failed: {e}")
-            # best-effort fallback: try to load model directly if possible
             try:
                 mdl = load_model()
-                # use probabilities if available
                 X_proc = df.reindex(columns=FEATURE_COLUMNS, fill_value=0)
                 if hasattr(mdl, "predict_proba"):
                     probs_arr = mdl.predict_proba(X_proc)
-                    # try to pick correct column
                     if probs_arr.ndim == 1:
                         probs = [float(x) for x in probs_arr]
                     else:
@@ -571,21 +544,25 @@ if do_run and pcap_path and model is not None:
                         except Exception:
                             probs = [float(x) for x in probs_arr[:, -1]]
                 else:
-                    preds = mdl.predict(X_proc)
-                    probs = [1.0 if int(p) == 1 else 0.0 for p in preds]
+                    preds_raw = mdl.predict(X_proc)
+                    probs = [1.0 if int(x) == 1 else 0.0 for x in preds_raw]
                 preds_int = [1 if p >= threshold else 0 for p in probs]
+                preds_label = ["ATTACK" if p >= threshold else "NORMAL" for p in probs]
             except Exception as e2:
                 st.error(f"Fallback prediction failed: {e2}")
                 probs = [0.0] * len(df)
                 preds_int = [0] * len(df)
+                preds_label = ["NORMAL"] * len(df)
 
     results = df.copy().reset_index(drop=True)
-    # Try to normalize to fields used later
+    # normalized/compat columns
     results["malicious_probability"] = [float(p) for p in probs]
+    results["attack_probability"] = results["malicious_probability"]
     results["prediction_int"] = [int(x) for x in preds_int]
+    results["prediction"] = preds_label
     results["is_suspicious"] = results["malicious_probability"] >= threshold
 
-    # labels
+    # label column for legacy usage
     if label_preset == "Binary (BENIGN / MALICIOUS)":
         lbl0, lbl1 = "BENIGN", "MALICIOUS"
         results["label"] = results["prediction_int"].map({0: lbl0, 1: lbl1})
@@ -601,18 +578,27 @@ if do_run and pcap_path and model is not None:
     normals = total - attacks
     attack_ratio = attacks / total if total else 0.0
 
-    if attack_ratio < 0.05:
-        threat = "VERY LOW"
-        color_emoji = "🟢"
-    elif attack_ratio < 0.15:
-        threat = "LOW"
-        color_emoji = "🟢"
+    # Threat level text + color (reuse your compact script logic)
+    if attack_ratio < 0.1:
+        threat_level = "LOW"
+        threat_color = "#4caf50"  # green
     elif attack_ratio < 0.3:
-        threat = "MEDIUM"
-        color_emoji = "🟠"
+        threat_level = "MEDIUM"
+        threat_color = "#ff9800"  # orange
     else:
-        threat = "HIGH"
-        color_emoji = "🔴"
+        threat_level = "HIGH"
+        threat_color = "#ff4c4c"  # red
+
+    def render_threat_card():
+        html = f"""
+        <div style='padding:14px; border-radius:10px; background-color: rgba(0,0,0,0.05);'>
+          <h2 style='color:{threat_color}; margin:0; font-weight:900;'>● {threat_level} THREAT LEVEL</h2>
+          <p style='color:var(--muted-dark); margin:6px 0 0 0;'>{attack_ratio*100:.1f}% of flows flagged as suspicious</p>
+        </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)
+
+    section_card("Threat Level", render_threat_card)
 
     # ---- KPI cards ----
     def render_summary():
@@ -621,7 +607,7 @@ if do_run and pcap_path and model is not None:
             ("Total Flows", total, "Total parsed flows"),
             ("Benign / Normal", normals, "Non-alert flows"),
             ("Suspicious / Alerts", attacks, "Detected suspicious flows"),
-            ("Threat Level", f"{threat} {color_emoji}", f"{attack_ratio*100:.2f}% of flows"),
+            ("Threat Level", f"{threat_level}", f"{attack_ratio*100:.2f}% of flows"),
         ]
         for title, value, sub in kpis:
             st.markdown(small_kpi(title, value, sub), unsafe_allow_html=True)
@@ -671,7 +657,7 @@ if do_run and pcap_path and model is not None:
             st.info("No flows match the current probability filter. Lower the filter or choose a different PCAP.")
         else:
             top = filtered.head(top_n).copy()
-            display_cols = ["label", "malicious_probability", "prediction_int"] + [c for c in top.columns if c.startswith("dummy_")][:3]
+            display_cols = ["prediction", "attack_probability", "malicious_probability", "prediction_int"] + [c for c in top.columns if c.startswith("dummy_")][:3]
             display_cols = [c for c in display_cols if c in top.columns]
             display_df = top[display_cols]
 
@@ -684,37 +670,49 @@ if do_run and pcap_path and model is not None:
                 except Exception:
                     st.dataframe(display_df, height=400)
             else:
-                st.dataframe(display_df, height=400)
+                # styled dataframe: highlight attack rows
+                def _highlight(row):
+                    return ["background-color: #ff4c4c; color: white; font-weight:700" if row["prediction"]=="ATTACK" else "" for _ in row]
+                try:
+                    styled = display_df.style.apply(lambda r: _highlight(r), axis=1)
+                    st.dataframe(styled, height=400)
+                except Exception:
+                    st.dataframe(display_df, height=400)
 
     section_card("Traffic & Tables", render_charts_and_table)
 
-    # single flow inspector
-    def render_inspector():
+    # Inspect / Export / Top suspicious flows
+    def render_inspect_and_export():
         st.markdown("### Inspect a single flow / JSON view")
         idx = st.number_input("Row index (0-based)", 0, max(0, total - 1), 0)
         if total > 0:
             row = results.iloc[int(idx)].to_dict()
             st.json(row)
 
-    section_card("Inspect Flow", render_inspector)
+        st.markdown("### Top Suspicious Flows")
+        if attacks > 0:
+            top_attacks = results[results["prediction"]=="ATTACK"].sort_values("attack_probability", ascending=False).head(10)
+            st.dataframe(top_attacks, use_container_width=True)
+        else:
+            st.info("No ATTACK flows detected in this sample.")
 
-    # export
-    def render_export():
         st.markdown("### Export results")
-        csv_bytes = results.to_csv(index=False).encode("utf-8")
-        json_str = results.to_json(orient="records", indent=2)
+        results_df = results.copy()
+        csv_bytes = results_df.to_csv(index=False).encode("utf-8")
+        json_str = results_df.to_json(orient="records", indent=2)
         st.download_button("📥 Download CSV", csv_bytes, file_name="ai_ids_results.csv", mime="text/csv")
         st.download_button("📥 Download JSON", json_str.encode("utf-8"), file_name="ai_ids_results.json", mime="application/json")
         if st.button("💾 Save results to predictions.csv (server)"):
             out_path = "predictions.csv"
             results.to_csv(out_path, index=False)
             st.success(f"Saved to {out_path}")
+
         if show_raw:
             st.markdown("---")
             st.subheader("Raw extracted features (first 300 rows)")
             st.dataframe(df.head(300))
 
-    section_card("Export & Raw", render_export)
+    section_card("Inspect / Export", render_inspect_and_export)
 
     st.success("Detection completed ✅")
 
@@ -723,7 +721,7 @@ else:
         st.markdown("This dashboard extracts features from PCAPs and runs a trained ML model to detect suspicious activity. Use the controls on the left to configure labels, thresholds and run detection.")
     section_card("Welcome", render_welcome)
 
-# ---------- Keyboard shortcut (R to rerun) ----------
+# ---------- Keyboard shortcut ----------
 st.markdown("""
 <script>
 window.addEventListener('keydown', function(e) {
