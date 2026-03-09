@@ -257,17 +257,6 @@ _LIGHT_CSS = """
 # ---------- Sidebar controls & debug ----------
 with st.sidebar:
     st.title("⚙️ Controls")
-    # quick environment debug so cloud startup issues are obvious
-    try:
-        st.markdown("**Debug — startup info**")
-        st.text(f"Python: {sys.version.split()[0]}")
-        st.text(f"CWD: {os.getcwd()}")
-        top_files = sorted([p for p in os.listdir(".") if not p.startswith(".")])[:30]
-        st.text("Files: " + ", ".join(top_files))
-        st.markdown("---")
-    except Exception:
-        pass
-
     ui_theme = st.selectbox("UI Theme", ["Soft-Dark (recommended)", "Light (high-contrast)"], index=0)
     background_style = st.selectbox("Background", ["Professional gradient (recommended)", "Plain"], index=0)
 
